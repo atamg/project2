@@ -1,0 +1,66 @@
+---
+- hosts: jump_server
+  become: true
+  vars:
+    monitoring_dir: /opt/monitoring
+    ssh_config_dir: /root/.ssh
+  
+  tasks:
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+
+    - name: Install required packages
+      apt:
+        name:
+          - python3-pip
+          - git
+          - curl
+          - wget
+          - tmux
+          - htop
+          - iptables-persistent
+        state: present
+
+    - name: Install monitoring tools
+      apt:
+        name:
+          - prometheus-node-exporter
+          - collectd
+        state: present
+
+    - name: Create monitoring directory
+      file:
+        path: "{{ monitoring_dir }}"
+        state: directory
+        mode: '0755'
+
+    - name: Configure SSH config for cluster access
+      template:
+        src: templates/ssh_config.j2
+        dest: "{{ ssh_config_dir }}/config"
+        mode: '0600'
+
+    - name: Configure iptables
+      template:
+        src: templates/iptables_rules.j2
+        dest: /etc/iptables/rules.v4
+        mode: '0600'
+      notify: reload iptables
+
+    - name: Install cluster monitoring script
+      template:
+        src: templates/monitor_cluster.sh.j2
+        dest: /usr/local/bin/monitor_cluster.sh
+        mode: '0755'
+
+    - name: Setup monitoring cron job
+      cron:
+        name: "Monitor cluster health"
+        minute: "*/5"
+        job: "/usr/local/bin/monitor_cluster.sh"
+
+  handlers:
+    - name: reload iptables
+      command: iptables-restore < /etc/iptables/rules.v4 

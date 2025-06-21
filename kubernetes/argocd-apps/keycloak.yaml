@@ -1,0 +1,35 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: keycloak
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: 'https://charts.bitnami.com/bitnami'
+    chart: keycloak
+    targetRevision: 15.1.0
+    helm:
+      values: |
+        ingress:
+          enabled: true
+          hostname: auth.mecan.ata.tips
+          tls: true
+          annotations:
+            cert-manager.io/cluster-issuer: "letsencrypt-prod"
+        auth:
+          adminUser: admin
+          existingSecret: keycloak-admin-creds
+        postgresql:
+          enabled: true
+          persistence:
+            size: 10Gi
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: auth
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

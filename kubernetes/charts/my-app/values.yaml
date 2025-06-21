@@ -1,0 +1,8 @@
+replicaCount: 2
+image:
+  repository: my-app
+  tag: latest
+  pullPolicy: IfNotPresent
+service:
+  type: ClusterIP
+  port: 80

@@ -1,0 +1,23 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: e2e-test-config
+  namespace: testing
+data:
+  config.yaml: |
+    testSuites:
+      - name: cluster-health
+        tests:
+          - name: node-health
+          - name: control-plane-health
+          - name: core-dns
+      - name: security
+        tests:
+          - name: policy-validation
+          - name: network-policies
+          - name: pod-security
+      - name: applications
+        tests:
+          - name: service-availability
+          - name: ingress-validation
+          - name: monitoring-stack 

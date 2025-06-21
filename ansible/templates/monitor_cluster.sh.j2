@@ -1,0 +1,55 @@
+#!/bin/bash
+
+# Cluster monitoring script
+ALERT_EMAIL="admin@mecan.ata.tips"
+SLACK_WEBHOOK="{{ slack_webhook_url }}"
+LOG_FILE="/var/log/cluster-monitor.log"
+
+check_node() {
+    local node=$1
+    if ! ping -c 1 $node &> /dev/null; then
+        return 1
+    fi
+    return 0
+}
+
+check_k8s_api() {
+    local master=$1
+    if ! curl -k https://$master:6443/healthz &> /dev/null; then
+        return 1
+    fi
+    return 0
+}
+
+send_alert() {
+    local message=$1
+    echo "[$(date)] $message" >> $LOG_FILE
+    
+    # Email alert
+    echo "$message" | mail -s "Cluster Alert" $ALERT_EMAIL
+    
+    # Slack alert
+    curl -X POST -H 'Content-type: application/json' \
+        --data "{\"text\":\"$message\"}" \
+        $SLACK_WEBHOOK
+}
+
+main() {
+    # Check master nodes
+    for master in master-1 master-2 master-3; do
+        if ! check_node $master; then
+            send_alert "WARNING: Master node $master is unreachable"
+        elif ! check_k8s_api $master; then
+            send_alert "WARNING: Kubernetes API on $master is not responding"
+        fi
+    done
+    
+    # Check worker nodes
+    for worker in worker-1 worker-2 worker-3; do
+        if ! check_node $worker; then
+            send_alert "WARNING: Worker node $worker is unreachable"
+        fi
+    done
+}
+
+main 

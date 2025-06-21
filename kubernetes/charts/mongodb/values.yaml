@@ -1,0 +1,35 @@
+architecture: replicaset
+replicaCount: 3
+
+auth:
+  enabled: true
+  rootPassword: ${MONGODB_ROOT_PASSWORD}
+  replicaSetKey: ${MONGODB_REPLICA_SET_KEY}
+
+persistence:
+  enabled: true
+  storageClass: ebs-sc
+  size: 50Gi
+
+metrics:
+  enabled: true
+  serviceMonitor:
+    enabled: true
+    additionalLabels:
+      release: prometheus
+
+resources:
+  requests:
+    cpu: 2
+    memory: 4Gi
+  limits:
+    cpu: 4
+    memory: 8Gi
+
+security:
+  fsgroup: 1001
+  runAsUser: 1001
+  runAsNonRoot: true
+
+replicaSet:
+  enabled: true

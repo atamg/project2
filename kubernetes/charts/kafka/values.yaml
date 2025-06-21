@@ -1,0 +1,35 @@
+replicaCount: 3
+
+persistence:
+  enabled: true
+  storageClass: ebs-sc
+  size: 100Gi
+
+zookeeper:
+  enabled: true
+  replicaCount: 3
+  persistence:
+    enabled: true
+    storageClass: ebs-sc
+    size: 20Gi
+
+metrics:
+  kafka:
+    enabled: true
+    serviceMonitor:
+      enabled: true
+  zookeeper:
+    enabled: true
+    serviceMonitor:
+      enabled: true
+
+security:
+  tls:
+    enabled: true
+    existingSecret: kafka-tls
+  auth:
+    clientProtocol: sasl
+    interBrokerProtocol: sasl
+    sasl:
+      mechanisms: plain
+      existingSecret: kafka-sasl

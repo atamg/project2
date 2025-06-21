@@ -1,0 +1,53 @@
+redis:
+  architecture: replication
+  auth:
+    enabled: true
+    existingSecret: redis-credentials
+  master:
+    persistence:
+      enabled: true
+      size: 8Gi
+  replica:
+    replicaCount: 2
+    persistence:
+      enabled: true
+      size: 8Gi
+
+postgresql:
+  architecture: replication
+  auth:
+    existingSecret: postgresql-credentials
+  primary:
+    persistence:
+      enabled: true
+      size: 10Gi
+  readReplicas:
+    replicaCount: 2
+    persistence:
+      enabled: true
+      size: 10Gi
+
+voting:
+  replicaCount: 3
+  image:
+    repository: bitnami/voting-app
+    tag: latest
+  resources:
+    requests:
+      cpu: 200m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  ingress:
+    enabled: true
+    annotations:
+      cert-manager.io/cluster-issuer: letsencrypt-prod
+    hosts:
+      - host: vote.mecan.ata.tips
+        paths:
+          - /
+    tls:
+      - secretName: vote-tls
+        hosts:
+          - vote.mecan.ata.tips 

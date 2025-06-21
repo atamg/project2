@@ -1,0 +1,31 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: gitlab
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: 'https://charts.gitlab.io/'
+    chart: gitlab
+    targetRevision: 7.0.1
+    helm:
+      values: |
+        global:
+          hosts:
+            domain: mecan.ata.tips
+            https: true
+          ingress:
+            configureCertmanager: true
+            class: nginx
+        certmanager-issuer:
+          email: admin@mecan.ata.tips
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: apps
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

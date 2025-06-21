@@ -1,0 +1,16 @@
+---
+- name: Configure Kubernetes Masters
+  hosts: k8s_masters
+  become: true
+  roles:
+    - common
+    - docker
+    - kubernetes/master
+
+- name: Configure Kubernetes Workers
+  hosts: k8s_workers
+  become: true
+  roles:
+    - common
+    - docker
+    - kubernetes/worker 

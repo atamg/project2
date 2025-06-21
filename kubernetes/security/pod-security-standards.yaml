@@ -1,0 +1,28 @@
+apiVersion: constraints.gatekeeper.sh/v1beta1
+kind: K8sPSPPrivilegedContainer
+metadata:
+  name: prevent-privileged-containers
+spec:
+  match:
+    excludedNamespaces: ["kube-system"]
+    kinds:
+      - apiGroups: [""]
+        kinds: ["Pod"]
+  parameters:
+    privileged: false
+
+---
+apiVersion: constraints.gatekeeper.sh/v1beta1
+kind: K8sPSPHostNamespace
+metadata:
+  name: prevent-host-namespace
+spec:
+  match:
+    excludedNamespaces: ["kube-system"]
+    kinds:
+      - apiGroups: [""]
+        kinds: ["Pod"]
+  parameters:
+    allowHostIPC: false
+    allowHostPID: false
+    allowHostNetwork: false 

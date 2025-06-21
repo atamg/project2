@@ -1,0 +1,5 @@
+---
+- name: Install Kubernetes master components
+  shell: |
+    apt-get install -y kubeadm kubelet kubectl
+    kubeadm init

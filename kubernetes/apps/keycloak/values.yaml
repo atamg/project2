@@ -1,0 +1,32 @@
+keycloak:
+  replicaCount: 2
+  
+  auth:
+    adminUser: admin
+    adminPassword: admin
+    existingSecret: keycloak-admin-credentials
+    
+  database:
+    type: postgresql
+    host: postgresql
+    existingSecret: keycloak-db-credentials
+    
+  ingress:
+    enabled: true
+    annotations:
+      cert-manager.io/cluster-issuer: letsencrypt-prod
+    hostname: auth.mecan.ata.tips
+    tls: true
+    
+  resources:
+    requests:
+      cpu: 1
+      memory: 1Gi
+    limits:
+      cpu: 2
+      memory: 2Gi
+      
+  metrics:
+    enabled: true
+    serviceMonitor:
+      enabled: true
