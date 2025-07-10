@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Configuration
-DEPLOYMENT_ENV=${DEPLOYMENT_ENV:-virtualbox}
+DEPLOYMENT_ENV=${DEPLOYMENT_ENV:-kvm}
 export DEPLOYMENT_ENV
 INSTALL_DEPENDENCY=${INSTALL_DEPENDENCY:-false}
 LOG_DIR="./reports"
@@ -22,6 +22,7 @@ REQUIRED_TOOLS=(
     "aws"
     "docker"
     "git"
+    "genisoimage"
 )
 
 # Log functions
@@ -90,13 +91,48 @@ create_log_dir() {
 # Deploy infrastructure using Terraform
 deploy_infrastructure() {
     log_info "Deploying infrastructure using Terraform for environment: $DEPLOYMENT_ENV ..."
-    terraform init
-    terraform apply -auto-approve -var="deployment_env=$DEPLOYMENT_ENV"
-    if [[ $? -ne 0 ]]; then
-        log_error "Terraform deployment failed."
-        exit 1
+    if [[ $DEPLOYMENT_ENV == "vbox" ]]; then
+        log_warn "Using VirtualBox environment. Ensure VirtualBox is installed and configured."
+        cd ./terraform/vbox
+        terraform fmt
+        terraform validate
+        terraform init
+        TF_LOG=DEBUG TF_LOG_PATH=terraform-debug.log terraform apply -auto-approve
+        if [[ $? -ne 0 ]]; then
+            log_error "Terraform deployment failed."
+            exit 1
+        fi
+        terraform output -json all_nodes > nodes.json
+        log_info "Infrastructure deployed successfully."
+    elif [[ "$DEPLOYMENT_ENV" == "aws" ]]; then
+        log_warn "Using AWS environment. Ensure AWS CLI is configured."
+        cd ./terraform/aws
+        terraform fmt
+        terraform validate
+        terraform init
+        terraform apply -auto-approve
+        if [[ $? -ne 0 ]]; then
+            log_error "Terraform deployment failed."
+            exit 1
+        fi
+        terraform output -json all_nodes > nodes.json
+        log_info "Infrastructure deployed successfully."
+    elif [[ "$DEPLOYMENT_ENV" == "kvm" ]]; then
+        log_warn "Using KVM environment. Ensure libvirt is installed and configured."
+        cd ./terraform/kvm
+        terraform fmt
+        terraform validate
+        terraform init
+        terraform apply -parallelism=1 -auto-approve
+        if [[ $? -ne 0 ]]; then
+            log_error "Terraform deployment failed."
+            exit 1
+        fi
+        terraform output -json all_nodes > nodes.json
+        log_info "Infrastructure deployed successfully."
     fi
-    log_info "Infrastructure deployed successfully."
+
+    
 }
 
 # Configure Kubernetes cluster using Ansible
@@ -134,8 +170,8 @@ main() {
     fi
 
     deploy_infrastructure
-    configure_kubernetes
-    deploy_applications
+    #configure_kubernetes
+    #deploy_applications
 }
 
 main "$@"

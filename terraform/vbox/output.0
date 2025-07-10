@@ -1,0 +1,13 @@
+output "master_ips" {
+  value = {
+    for i in range(length(var.masters)) :
+    var.masters[i] => virtualbox_vm.masters[i].network_adapter[0].ipv4_address
+  }
+}
+
+output "worker_ips" {
+  value = {
+    for i in range(length(var.workers)) :
+    var.workers[i] => virtualbox_vm.workers[i].network_adapter[0].ipv4_address
+  }
+}
