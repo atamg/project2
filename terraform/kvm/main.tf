@@ -28,6 +28,7 @@ resource "libvirt_volume" "master_disk" {
   name           = "master-${count.index}.qcow2"
   base_volume_id = libvirt_volume.ubuntu_base.id
   pool           = "default"
+  size           = 10737418240
 }
 
 resource "libvirt_volume" "worker_disk" {
@@ -35,7 +36,16 @@ resource "libvirt_volume" "worker_disk" {
   name           = "worker-${count.index}.qcow2"
   base_volume_id = libvirt_volume.ubuntu_base.id
   pool           = "default"
+  size           = 10737418240
 }
+
+resource "libvirt_volume" "jump_server_disk" {
+  name           = "jump_server.qcow2"
+  base_volume_id = libvirt_volume.ubuntu_base.id
+  pool           = "default"
+  size           = 10737418240
+}
+
 
 data "local_file" "ssh_key" {
   filename = abspath(var.ssh_key_path)
@@ -99,6 +109,30 @@ resource "libvirt_cloudinit_disk" "cloudinit_worker" {
   network_config = data.template_file.network_config_worker[count.index].rendered
 }
 
+data "template_file" "cloud_init_jump_server" {
+  template = file("${path.module}/cloud_init_jump_server.tpl")
+  vars = {
+    hostname = "jump-server"
+    password = var.password
+    ssh_key  = data.local_file.ssh_key.content
+    ip       = var.jump_server_ip
+    gateway  = local.gateway_ip
+  }
+}
+
+data "template_file" "network_config_jump_server" {
+  template = file("${path.module}/network_config.cfg")
+  vars = {
+    ip      = var.jump_server_ip
+    gateway = local.gateway_ip
+  }
+}
+
+resource "libvirt_cloudinit_disk" "cloudinit_jump_server" {
+  name           = "cloudinit-jump-server.iso"
+  user_data      = data.template_file.cloud_init_jump_server.rendered
+  network_config = data.template_file.network_config_jump_server.rendered
+}
 
 resource "libvirt_domain" "masters" {
   count  = var.masters
@@ -156,8 +190,31 @@ resource "libvirt_domain" "workers" {
   }
 }
 
-output "all_nodes" {
-  value = concat(var.master_ips, var.worker_ips)
+resource "libvirt_domain" "jump_server" {
+  name   = "jump-server"
+  memory = var.memory
+  vcpu   = var.cpu
+
+  disk {
+    volume_id = libvirt_volume.jump_server_disk.id
+  }
+
+  cloudinit = libvirt_cloudinit_disk.cloudinit_jump_server.id
+
+  network_interface {
+    network_name = "default"
+  }
+
+  graphics {
+    type        = "spice"
+    listen_type = "none"
+  }
+
+  console {
+    type        = "pty"
+    target_type = "serial"
+    target_port = "0"
+  }
 }
 
 output "master_nodes_map" {
@@ -171,6 +228,12 @@ output "worker_nodes_map" {
   value = {
     for idx, ip in var.worker_ips :
     "worker-${idx + 1}" => ip
+  }
+}
+
+output "jump_server_map" {
+  value = {
+    "jump-server" = var.jump_server_ip
   }
 }
 

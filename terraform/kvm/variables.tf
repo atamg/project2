@@ -27,6 +27,10 @@ variable "ssh_key_path" {
   default = "/home/ata/.ssh/ata_rsa.pub"
 }
 
+variable "jump_server_ip" {
+  default = "192.168.122.100"
+}
+
 variable "master_ips" {
   default = ["192.168.122.101", "192.168.122.102", "192.168.122.103"]
 }

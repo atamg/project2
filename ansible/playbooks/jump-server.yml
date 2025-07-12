@@ -3,7 +3,8 @@
   become: true
   vars:
     monitoring_dir: /opt/monitoring
-    ssh_config_dir: /root/.ssh
+    ssh_config_dir: /home/ata/.ssh
+    slack_webhook_url: "https://hooks.slack.com/services"
   
   tasks:
     - name: Update apt cache
@@ -38,20 +39,20 @@
 
     - name: Configure SSH config for cluster access
       template:
-        src: templates/ssh_config.j2
+        src: ../templates/ssh_config.j2
         dest: "{{ ssh_config_dir }}/config"
         mode: '0600'
 
     - name: Configure iptables
       template:
-        src: templates/iptables_rules.j2
+        src: ../templates/iptables_rules.j2
         dest: /etc/iptables/rules.v4
         mode: '0600'
       notify: reload iptables
 
     - name: Install cluster monitoring script
       template:
-        src: templates/monitor_cluster.sh.j2
+        src: ../templates/monitor_cluster.sh.j2
         dest: /usr/local/bin/monitor_cluster.sh
         mode: '0755'
 
@@ -63,4 +64,4 @@
 
   handlers:
     - name: reload iptables
-      command: iptables-restore < /etc/iptables/rules.v4 
+      ansible.builtin.shell: iptables-restore < /etc/iptables/rules.v4

@@ -1,0 +1,34 @@
+*filter
+# Allow all loopback (lo0) traffic and drop all traffic to 127/8 that doesn't use lo0
+-A INPUT -i lo -j ACCEPT
+-A INPUT ! -i lo -d 127.0.0.0/8 -j DROP
+
+# Accept established and related incoming connections
+-A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+
+# Allow SSH from anywhere (customize as needed)
+-A INPUT -p tcp --dport 22 -j ACCEPT
+
+# Allow ICMP (ping)
+-A INPUT -p icmp -j ACCEPT
+
+# Allow Prometheus Node Exporter (default port 9100)
+-A INPUT -p tcp --dport 9100 -j ACCEPT
+
+# Allow local monitoring tools (collectd, etc.)
+-A INPUT -p udp --dport 25826 -j ACCEPT
+
+# Allow HTTP/HTTPS if needed (uncomment if required)
+#-A INPUT -p tcp --dport 80 -j ACCEPT
+#-A INPUT -p tcp --dport 443 -j ACCEPT
+
+# Allow traffic from internal network (customize subnet as needed)
+#-A INPUT -s 10.0.0.0/8 -j ACCEPT
+
+# Reject all other inbound traffic
+-A INPUT -j DROP
+
+# Allow all outbound traffic
+-A OUTPUT -j ACCEPT
+
+COMMIT
