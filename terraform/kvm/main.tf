@@ -13,9 +13,9 @@ provider "libvirt" {
 
 
 resource "libvirt_volume" "ubuntu_base" {
-  name   = "ubuntu20.04.qcow2"
+  name   = "ubuntu24.04.qcow2"
   pool   = "default"
-  source = "https://cloud-images.ubuntu.com/focal/current/focal-server-cloudimg-amd64.img"
+  source = "https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img"
   format = "qcow2"
 
   provisioner "local-exec" {

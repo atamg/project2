@@ -39,3 +39,8 @@ override.tf.json
 # Ignore CLI configuration files
 .terraformrc
 terraform.rc
+
+
+terraform/kvm/nodes.json
+terraform/kvm/vars.yaml
+ansible/inventory/*
