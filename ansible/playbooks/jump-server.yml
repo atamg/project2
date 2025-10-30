@@ -4,7 +4,7 @@
   vars:
     monitoring_dir: /opt/monitoring
     ssh_config_dir: /home/ata/.ssh
-    cluster_ssh_user: root
+    cluster_ssh_user: ata
     slack_webhook_url: "https://hooks.slack.com/services"
   
   tasks:
@@ -23,6 +23,8 @@
           - tmux
           - htop
           - iptables-persistent
+          - ansible
+          - lynis
         state: present
 
     - name: Install monitoring tools

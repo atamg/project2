@@ -190,8 +190,11 @@ deploy_infrastructure() {
     log_info "Waiting for jump server SSH before configuration..."
     wait_for_jump_server_ssh
 
-    log_info "Configuring jump server using"
+    log_info "Configuring jump server"
     configure_jump_server
+
+    log_info "Hardening jump server"
+    harden_jump_server
 }
 
 # Destroy infrastructure using Terraform
@@ -254,7 +257,7 @@ deploy_applications() {
 # Configure jump server using Ansible
 configure_jump_server() {
     log_info "Configuring jump server using Ansible for environment: $DEPLOYMENT_ENV ..."
-    ansible-playbook -e deployment_env=$DEPLOYMENT_ENV -i ../../ansible/inventory/hosts.yaml ../../ansible/playbooks/jump-server.yml
+    ansible-playbook -e deployment_env=$DEPLOYMENT_ENV -i ../../ansible/inventory/hosts.yaml ../../ansible/playbooks/jump-server.yml --vault-password-file ~/.ansible/vault.pass
     if [[ $? -ne 0 ]]; then
         log_error "Jump server configuration failed."
         exit 1
@@ -300,6 +303,18 @@ wait_for_jump_server_ssh() {
     log_error "SSH did not become available on jump server ($jump_server_ip) after $((max_retries * retry_interval)) seconds."
     exit 1
 }
+
+# Harden jump server using Ansible
+harden_jump_server() {
+    log_info "Hardening jump server using Ansible for environment: $DEPLOYMENT_ENV ..."
+    ansible-playbook -e deployment_env=$DEPLOYMENT_ENV -i ../../ansible/inventory/hosts.yaml ../../ansible/playbooks/hardening.yml --vault-password-file ~/.ansible/vault.pass
+    if [[ $? -ne 0 ]]; then
+        log_error "Jump server hardening failed."
+        exit 1
+    fi
+    log_info "Jump server hardening has been done successfully."
+}
+
 
 # Main script execution
 main() {
