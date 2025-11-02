@@ -1,0 +1,731 @@
+---
+- hosts: workers
+  become: true
+  become_method: sudo
+  vars:
+    dns_domain: "ata.tips"
+    dns_servers: ["8.8.8.8", "1.1.1.1"]
+    ssh_config_dir: /home/ata/.ssh
+    # CIS role variables (match ansible-lockdown.ubuntu24_cis defaults)
+    # Enable level 1 controls only
+    ubtu24cis_level_1: true
+    ubtu24cis_level_2: false
+    # Firewall package used by the role
+    ubtu24cis_firewall_package: "ufw"
+
+    # SSH server settings (flat variables expected by the role)
+    ubtu24cis_sshd_log_level: "VERBOSE"
+    ubtu24cis_sshd_max_auth_tries: 3
+    ubtu24cis_sshd_max_sessions: 2
+    ubtu24cis_sshd_client_alive_interval: 300
+    ubtu24cis_sshd_client_alive_count_max: 2
+
+    # pwquality / password complexity (maps to role passwd_* vars)
+    ubtu24cis_passwd_minlen_value: 14
+    ubtu24cis_passwd_dcredit: -1
+    ubtu24cis_passwd_ucredit: -1
+    ubtu24cis_passwd_lcredit: -1
+    ubtu24cis_passwd_ocredit: -1
+
+    # password aging (login.defs) – role expects these names
+    ubtu24cis_pass_max_days: 90
+    ubtu24cis_pass_min_days: 1
+    ubtu24cis_pass_warn_age: 7
+
+    # PAM/hash algorithm
+    ubtu24cis_passwd_hash_algo: "sha512"
+    ubtu24cis_passwd_setpam_hash_algo: true
+    remote_syslog_host: "log-collector.ata.tips"   # your remote syslog
+    remote_syslog_port: 514                                # 514 (UDP) / 514 (TCP) / 6514 (TLS)
+    syslog_use_tcp: true                                   # true => TCP, false => UDP
+    syslog_use_tls: false                                  # set true if you have TLS infra
+    syslog_tls_ca: "/etc/rsyslog.d/ca.pem"                 # CA file (when TLS=true)
+    syslog_permitted_peer: "log-collector.ata.tips" # TLS peer name (when TLS=true)
+    # Journald retention (tune to your disk)
+    journald_system_max_use: "1G"
+    journald_runtime_max_use: "200M"
+    aide_hash_algo: "sha512"        # or "sha256"
+    aide_reinit_now: false          # flip to true during a maintenance window
+    # Exclude noisy paths (examples for K8s-heavy nodes)
+    aide_exclude_paths:
+      - "/var/lib/kubelet/pods/.*"
+      - "/var/lib/containerd/.*"
+      - "/var/log/.*"
+
+  roles:
+    #- githubixx.harden_linux
+    - role: ansible-lockdown.ubuntu24_cis
+      tags: role_csi
+  
+  tasks:
+    - name: Install Lynis-recommended packages
+      apt:
+        name:
+          - libpam-tmpdir        # Isolate /tmp and /var/tmp per user/session
+          - apt-listchanges      # Show upstream changelog before upgrades
+          - apt-show-versions    # List available/newer versions
+          - debsums              # Verify installed files against md5sums
+          - fail2ban             # Block repeated auth failures
+        state: present
+        update_cache: yes
+      tags: lynis_tools
+
+    - name: Allow port 6422 IN in UFW
+      ufw:
+        rule: allow
+        port: '6422'
+        proto: tcp
+        direction: in
+        state: enabled
+      tags: firewall
+
+    - name: Allow port 6422 OUT in UFW
+      ufw:
+        rule: allow
+        port: '6422'
+        proto: tcp
+        direction: out
+        state: enabled
+      tags: firewall
+
+    - name: Allow port 22 OUT in UFW
+      ufw:
+        rule: allow
+        port: '22'
+        proto: tcp
+        direction: out
+        state: enabled
+      tags: firewall
+
+    # Optional: ensure fail2ban starts on boot
+    - name: Enable and start fail2ban
+      systemd:
+        name: fail2ban
+        enabled: yes
+        state: started
+      tags: lynis_tools
+
+
+    - name: Configure fail2ban SSH jail
+      copy:
+        dest: /etc/fail2ban/jail.d/sshd.local
+        content: |
+          [sshd]
+          enabled = true
+          port    = ssh
+          logpath = /var/log/auth.log
+          maxretry = 5
+        mode: '0644'
+      notify: Restart fail2ban
+      tags: lynis_tools
+
+    - name: Copy jail.conf to jail.local to prevent changes by updates
+      copy:
+        src: /etc/fail2ban/jail.conf
+        dest: /etc/fail2ban/jail.local
+        remote_src: yes
+        mode: '0644'
+      notify: Restart fail2ban
+      tags: lynis_tools
+
+    - name: Remove any existing X11Forwarding configurations
+      lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^(#\s*)?X11Forwarding\s+.*'
+        state: absent
+      notify: Restart ssh
+      tags: ssh,lynis_tools
+
+    - name: Harden SSH configuration (disable forwarding, X11, TCPKeepAlive and change port)
+      vars:
+        sshd_hardening:
+          AllowTcpForwarding: "no"
+          AllowAgentForwarding: "no"
+          X11Forwarding: "no"
+          TCPKeepAlive: "no"
+          Port: "6422"
+      lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^(#\s*)?{{ item.key }}\s+.*'
+        line: '{{ item.key }} {{ item.value }}'
+        create: yes
+        backrefs: no
+      loop: "{{ sshd_hardening | dict2items }}"
+      notify: Restart ssh
+      tags: ssh,lynis_tools
+
+    - name: Add legal banner to /etc/issue (interactive login warning)
+      copy:
+        dest: /etc/issue
+        mode: '0644'
+        backup: yes
+        content: |
+          *****************************************************************
+          WARNING: Unauthorized access to this system is prohibited.
+          All activities on this system are logged and monitored. By
+          continuing to use this system you consent to such monitoring.
+          *****************************************************************
+      tags: banners,lynis_tools
+
+    - name: Add legal banner to /etc/issue.net (network login warning)
+      copy:
+        dest: /etc/issue.net
+        mode: '0644'
+        backup: yes
+        content: |
+          *****************************************************************
+          WARNING: Unauthorized access to this system is prohibited.
+          All activities on this system are logged and monitored. By
+          continuing to use this system you consent to such monitoring.
+          *****************************************************************
+      tags: banners,lynis_tools
+
+    - name: Ensure grub password is set (hashed)
+      copy:
+        dest: /etc/grub.d/40_custom
+        mode: '0640'
+        content: |
+          set superusers="root"
+          password_pbkdf2 root grub.pbkdf2.sha512.10000.5818428ADA352E447CD797C875C9485753E6FFB20E7B0F407FFE24EC6CC49BF524CF920A4D45229F0DA6AA977126D13F89288B6B2B019D4667305A8E6264A824.FA756372E7EF325A5BEE48FFB2D434E3310B7C3CA6DB3447436D287B63458D7A78FBDE7D50B9DB70A5D29DB2B7ADD247802B033B0ADDA29AC7E3EC666858CC30
+
+    - name: Update grub
+      command: update-grub
+
+    - name: Derive node facts (short hostname, FQDN, mgmt IP)
+      set_fact:
+        short_hostname: "{{ ansible_facts.hostname }}"
+        node_ip: "{{ mgmt_ip | default(ansible_facts.default_ipv4.address) }}"
+        fqdn: >-
+          {% if dns_domain is defined and dns_domain|length > 0 -%}
+          {{ ansible_facts.hostname }}.{{ dns_domain }}
+          {%- elif ansible_facts.fqdn is defined and '.' in ansible_facts.fqdn -%}
+          {{ ansible_facts.fqdn }}
+          {%- else -%}
+          {{ ansible_facts.hostname }}
+          {%- endif %}
+
+    - name: Ensure /etc/hosts has node identity (IP → FQDN + shortname)
+      blockinfile:
+        path: /etc/hosts
+        marker: "# {mark} MANAGED BY ANSIBLE: jump-server identity"
+        block: |
+          {{ node_ip }}  {{ fqdn }}  {{ short_hostname }}
+
+    - name: Configure systemd-resolved (DNS servers and optional search domain)
+      copy:
+        dest: /etc/systemd/resolved.conf
+        mode: '0644'
+        content: |
+          [Resolve]
+          DNS={{ dns_servers | join(' ') }}
+          {% if dns_domain is defined and dns_domain|length > 0 %}Domains={{ dns_domain }}{% endif %}
+          DNSSEC=no
+      notify: Restart systemd-resolved
+
+    - name: Ensure /etc/resolv.conf links to systemd-resolved stub
+      file:
+        src: /run/systemd/resolve/stub-resolv.conf
+        dest: /etc/resolv.conf
+        state: link
+        force: true
+
+    - name: Configure kernel hardening parameters
+      sysctl:
+        name: "{{ item.key }}"
+        value: "{{ item.value }}"
+        state: present
+        sysctl_file: /etc/sysctl.d/99-security.conf
+        reload: yes
+      with_items:
+        # Network Security
+        - { key: 'net.ipv4.conf.all.rp_filter', value: '1' }             # Enable source route verification
+        - { key: 'net.ipv4.conf.default.rp_filter', value: '1' }         # Enable source route verification
+        - { key: 'net.ipv4.icmp_echo_ignore_broadcasts', value: '1' }    # Ignore ICMP broadcast requests
+        - { key: 'net.ipv4.icmp_ignore_bogus_error_responses', value: '1' } # Ignore bogus ICMP errors
+        - { key: 'net.ipv4.conf.all.accept_redirects', value: '0' }      # Disable ICMP redirects
+        - { key: 'net.ipv4.conf.default.accept_redirects', value: '0' }  # Disable ICMP redirects
+        - { key: 'net.ipv4.conf.all.secure_redirects', value: '0' }      # Disable secure ICMP redirects
+        - { key: 'net.ipv4.conf.default.secure_redirects', value: '0' }  # Disable secure ICMP redirects
+        - { key: 'net.ipv4.conf.all.send_redirects', value: '0' }        # Don't send ICMP redirects
+        - { key: 'net.ipv4.conf.default.send_redirects', value: '0' }    # Don't send ICMP redirects
+        - { key: 'net.ipv4.conf.all.accept_source_route', value: '0' }   # Disable source routing
+        - { key: 'net.ipv4.conf.default.accept_source_route', value: '0' } # Disable source routing
+        
+        # System Security
+        - { key: 'kernel.sysrq', value: '0' }                            # Disable SysRq key
+        - { key: 'kernel.core_uses_pid', value: '1' }                    # Append PID to core filename
+        - { key: 'kernel.kptr_restrict', value: '2' }                    # Restrict kernel pointer exposure
+        - { key: 'kernel.yama.ptrace_scope', value: '1' }               # Restrict ptrace to child processes
+        - { key: 'kernel.panic_on_oops', value: '1' }                   # Panic on kernel oops
+        - { key: 'kernel.perf_event_paranoid', value: '3' }             # Restrict perf events
+        - { key: 'kernel.randomize_va_space', value: '2' }              # Enable ASLR
+        - { key: 'dev.tty.ldisc_autoload', value: '0' }                # Disable automatic loading of TTY line disciplines
+        - { key: 'fs.protected_fifos', value: '2' }                     # Protect FIFO special files
+        - { key: 'kernel.unprivileged_bpf_disabled', value: '1' }       # Disable unprivileged BPF
+        - { key: 'net.core.bpf_jit_harden', value: '2' }               # Harden BPF JIT compiler
+        
+        # File System Security
+        - { key: 'fs.protected_hardlinks', value: '1' }                 # Protect hardlinks
+        - { key: 'fs.protected_symlinks', value: '1' }                  # Protect symlinks
+        - { key: 'fs.suid_dumpable', value: '0' }                      # Disable core dumps of suid programs
+        
+        # Virtual Memory Security
+        - { key: 'vm.mmap_min_addr', value: '65536' }                  # Prevent NULL page mapping
+        - { key: 'vm.swappiness', value: '10' }                        # Reduce swapping
+        - { key: 'vm.dirty_ratio', value: '20' }                       # Memory dirty ratio
+        
+        # Network Performance & Security
+        - { key: 'net.core.rmem_max', value: '16777216' }             # Increase max TCP receive buffer
+        - { key: 'net.core.wmem_max', value: '16777216' }             # Increase max TCP send buffer
+        - { key: 'net.ipv4.tcp_rmem', value: '4096 87380 16777216' }  # TCP receive buffer
+        - { key: 'net.ipv4.tcp_wmem', value: '4096 87380 16777216' }  # TCP send buffer
+        - { key: 'net.ipv4.tcp_syncookies', value: '1' }              # Enable TCP SYN cookies
+        - { key: 'net.ipv4.tcp_rfc1337', value: '1' }                # Enable protection against TCP time-wait
+        - { key: 'net.ipv4.tcp_timestamps', value: '1' }              # Enable TCP timestamps
+        - { key: 'net.ipv4.tcp_sack', value: '1' }                   # Enable selective ACK
+        - { key: 'net.ipv4.tcp_dsack', value: '1' }                  # Enable duplicate SACK
+        - { key: 'net.ipv6.conf.all.accept_redirects', value: '0' }  # Enable duplicate SACK
+        - { key: 'net.ipv6.conf.default.accept_redirects', value: '0' } # Enable duplicate SACK
+      tags: kernel_hard
+      
+    - name: Ensure sysctl settings are loaded on boot
+      copy:
+        dest: /etc/sysctl.d/99-security.conf
+        mode: '0644'
+        content: |
+          # Kernel hardening parameters
+          # Network security
+          net.ipv4.conf.all.rp_filter = 1
+          net.ipv4.conf.default.rp_filter = 1
+          net.ipv4.icmp_echo_ignore_broadcasts = 1
+          net.ipv4.icmp_ignore_bogus_error_responses = 1
+          net.ipv4.conf.all.accept_redirects = 0
+          net.ipv4.conf.default.accept_redirects = 0
+          net.ipv4.conf.all.secure_redirects = 0
+          net.ipv4.conf.default.secure_redirects = 0
+          net.ipv4.conf.all.send_redirects = 0
+          net.ipv4.conf.default.send_redirects = 0
+          net.ipv4.conf.all.accept_source_route = 0
+          net.ipv4.conf.default.accept_source_route = 0
+          
+          # System security
+          kernel.sysrq = 0
+          kernel.core_uses_pid = 1
+          kernel.kptr_restrict = 2
+          kernel.yama.ptrace_scope = 1
+          kernel.panic_on_oops = 1
+          kernel.perf_event_paranoid = 3
+          kernel.randomize_va_space = 2
+          dev.tty.ldisc_autoload = 0
+          fs.protected_fifos = 2
+          kernel.unprivileged_bpf_disabled = 1
+          net.core.bpf_jit_harden = 2
+          
+          # File system security
+          fs.protected_hardlinks = 1
+          fs.protected_symlinks = 1
+          fs.suid_dumpable = 0
+          
+          # Virtual memory security
+          vm.mmap_min_addr = 65536
+          vm.swappiness = 10
+          vm.dirty_ratio = 20
+          
+          # Network performance & security
+          net.core.rmem_max = 16777216
+          net.core.wmem_max = 16777216
+          net.ipv4.tcp_rmem = 4096 87380 16777216
+          net.ipv4.tcp_wmem = 4096 87380 16777216
+          net.ipv4.tcp_syncookies = 1
+          net.ipv4.tcp_rfc1337 = 1
+          net.ipv4.tcp_timestamps = 0
+          net.ipv4.tcp_sack = 0
+          net.ipv4.tcp_dsack = 0
+          net.ipv6.conf.all.accept_redirects = 0
+          net.ipv6.conf.default.accept_redirects = 0
+      notify: Reload sysctl
+      tags: sysctl,security,kernel
+    
+    - name: Ensure rsyslog, auditd (and TLS/RELP bits if needed) are present
+      apt:
+        name: >-
+          {{ ['rsyslog','auditd'] +
+             (syslog_use_tls | bool | ternary(['rsyslog-gnutls'], [])) +
+             (['rsyslog-relp'] if (syslog_use_tcp and remote_syslog_port|int == 2514) else []) }}
+        state: present
+        update_cache: yes
+
+    # -------------------------------
+    # journald: persistence + forward to rsyslog
+    # -------------------------------
+    - name: Configure journald for persistent storage and forwarding
+      copy:
+        dest: /etc/systemd/journald.conf
+        mode: '0644'
+        content: |
+          [Journal]
+          Storage=persistent
+          SystemMaxUse={{ journald_system_max_use }}
+          RuntimeMaxUse={{ journald_runtime_max_use }}
+          ForwardToSyslog=yes
+          # Optional hardening knobs:
+          # MaxRetentionSec=30day
+      notify: Restart journald
+
+    # -------------------------------
+    # rsyslog main: preserve FQDN, queues, source modules
+    # -------------------------------
+    - name: Baseline rsyslog config (modules, fqdn, queues)
+      copy:
+        dest: /etc/rsyslog.d/10-basics.conf
+        mode: '0644'
+        content: |
+          # Input modules: journal + local sockets
+          module(load="imuxsock")        # local apps
+          module(load="imjournal" StateFile="imjournal.state")  # systemd journal
+
+          # Identify host properly
+          $PreserveFQDN on
+
+          # Action queue for remote forwarding (reliable buffering)
+          $ActionQueueType LinkedList
+          $ActionQueueMaxDiskSpace 256m
+          $ActionQueueFileName fwdRule1
+          $ActionQueueSaveOnShutdown on
+          $ActionResumeRetryCount -1
+      notify: Restart rsyslog
+
+    # -------------------------------
+    # rsyslog remote forwarding (TCP/UDP basic)
+    # -------------------------------
+    - name: Configure remote forwarding (non-TLS)
+      when: not syslog_use_tls
+      copy:
+        dest: /etc/rsyslog.d/60-remote.conf
+        mode: '0644'
+        content: |
+          # '*' facility & '*' level: forward everything
+          {{ '*.*  ' ~ ('@@' if syslog_use_tcp else '@') ~ remote_syslog_host ~ ':' ~ remote_syslog_port }}
+      notify: Restart rsyslog
+
+    # -------------------------------
+    # rsyslog remote forwarding (TLS hardening)
+    # -------------------------------
+    - name: Configure remote forwarding (TLS over TCP)
+      when: syslog_use_tls
+      copy:
+        dest: /etc/rsyslog.d/60-remote-tls.conf
+        mode: '0644'
+        content: |
+          # TLS prerequisites
+          $DefaultNetstreamDriverCAFile {{ syslog_tls_ca }}
+          $DefaultNetstreamDriver gtls
+          $ActionSendStreamDriverMode 1            # TLS only
+          $ActionSendStreamDriverAuthMode x509/name
+          $ActionSendStreamDriverPermittedPeer {{ syslog_permitted_peer }}
+
+          # Forward everything over TCP+TLS (port 6514 typically)
+          *.*  @@{{ remote_syslog_host }}:{{ remote_syslog_port }}
+      notify: Restart rsyslog
+
+    # -------------------------------
+    # Ensure services enabled
+    # -------------------------------
+    - name: Enable & start rsyslog
+      systemd:
+        name: rsyslog
+        state: started
+        enabled: yes
+
+    - name: Enable & start auditd
+      systemd:
+        name: auditd
+        state: started
+        enabled: yes
+
+    # -------------------------------
+    # auditd configuration (retention & space handling)
+    # -------------------------------
+    - name: Tune auditd retention & behavior
+      lineinfile:
+        path: /etc/audit/auditd.conf
+        regexp: '^({{ item.key }})\s*=\s*.*'
+        line: '{{ item.key }} = {{ item.value }}'
+        backrefs: yes
+      loop:
+        - { key: 'max_log_file', value: '200' }                # ~200MB per file
+        - { key: 'num_logs', value: '10' }                     # keep 10 files
+        - { key: 'max_log_file_action', value: 'rotate' }
+        - { key: 'space_left', value: '75' }                   # MB free trigger
+        - { key: 'space_left_action', value: 'email' }         # or 'SYSLOG'
+        - { key: 'admin_space_left', value: '50' }
+        - { key: 'admin_space_left_action', value: 'halt' }    # strict; pick per policy
+        - { key: 'disk_full_action', value: 'halt' }           # strict; pick per policy
+        - { key: 'disk_error_action', value: 'syslog' }
+      notify: Restart auditd
+
+    # -------------------------------
+    # Minimal, high-value audit rules (add more per policy)
+    # -------------------------------
+    - name: Install minimal high-value audit rules
+      copy:
+        dest: /etc/audit/rules.d/50-hardening.rules
+        mode: '0640'
+        content: |
+          ## Time changes
+          -a always,exit -F arch=b64 -S adjtimex -S settimeofday -k time-change
+          -a always,exit -F arch=b64 -S clock_settime -k time-change
+          -w /etc/localtime -p wa -k time-change
+          ## Identity & auth files
+          -w /etc/group -p wa -k identity
+          -w /etc/passwd -p wa -k identity
+          -w /etc/shadow -p wa -k identity
+          -w /etc/sudoers -p wa -k scope
+          -w /etc/sudoers.d/ -p wa -k scope
+          ## Network & hosts
+          -w /etc/hosts -p wa -k system-locale
+          -w /etc/hostname -p wa -k system-locale
+          -w /etc/network/ -p wa -k network
+          ## Kernel module loading/unloading
+          -w /sbin/insmod -p x -k modules
+          -w /sbin/rmmod -p x -k modules
+          -w /sbin/modprobe -p x -k modules
+          -a always,exit -F arch=b64 -S init_module -S delete_module -k modules
+          ## Audit config changes
+          -w /etc/audit/ -p wa -k auditconfig
+          -w /etc/libaudit.conf -p wa -k auditconfig
+          -w /etc/audisp/ -p wa -k audispconfig
+          ## Log deletion attempts
+          -w /var/log/faillog -p wa -k logins
+          -w /var/log/lastlog -p wa -k logins
+          -w /var/log/wtmp -p wa -k logins
+          -w /var/log/btmp -p wa -k logins
+      notify: Load audit rules
+
+    # -------------------------------
+    # logrotate sanity for rsyslog & audit logs (defaults exist; ensure sane)
+    # -------------------------------
+    - name: Ensure audit logrotate policy (defensive)
+      copy:
+        dest: /etc/logrotate.d/audit
+        mode: '0644'
+        content: |
+          /var/log/audit/audit.log {
+              daily
+              rotate 14
+              compress
+              missingok
+              notifempty
+              postrotate
+                  /usr/sbin/service auditd reload > /dev/null 2>&1 || true
+              endscript
+          }
+    
+    - name: Ensure AIDE is installed
+      apt:
+        name: aide
+        state: present
+        update_cache: yes
+      tags: aide
+
+    - name: Configure AIDE with strong hash algorithms
+      blockinfile:
+        path: /etc/aide/aide.conf
+        marker: "# {mark} MANAGED BY ANSIBLE: AIDE HASH RULES"
+        block: |
+          # Define strong hash rules
+          ALLHASH = sha512+sha256
+          # Enhanced NORMAL group with both SHA512 and SHA256
+          NORMAL = ALLHASH+ftype+p+n+u+g+s+m+c+acl+selinux+xattrs
+          # Define specific groups for different security needs
+          DATAONLY = ALLHASH
+          CONTENT = ALLHASH+ftype
+          SECURE = CONTENT+p+u+g+s+acl+selinux+xattrs
+          LOGS = ALLHASH+growing+p+u+g
+        create: yes
+      notify: Maybe reinit AIDE
+      tags: aide
+
+    - name: Apply AIDE rules to critical paths
+      blockinfile:
+        path: /etc/aide/aide.conf
+        marker: "# {mark} MANAGED BY ANSIBLE: AIDE PATH RULES"
+        block: |
+          # System binaries
+          /bin$ SECURE
+          /sbin$ SECURE
+          /usr/bin$ SECURE
+          /usr/sbin$ SECURE
+          /usr/local/bin$ SECURE
+          /usr/local/sbin$ SECURE
+          
+          # System configuration
+          /etc$ SECURE
+          /etc/(.+)$ SECURE
+          
+          # Security-sensitive files
+          /etc/passwd$ SECURE
+          /etc/shadow$ SECURE
+          /etc/group$ SECURE
+          /etc/gshadow$ SECURE
+          /etc/login.defs$ SECURE
+          
+          # Kernel and boot files
+          /boot$ SECURE
+          /lib/modules$ SECURE
+          
+          # Log files with special handling
+          /var/log$ LOGS
+          /var/log/(.+)\.log$ LOGS
+          /var/log/aide/aide.log$ LOGS
+        create: yes
+      notify: Maybe reinit AIDE
+      tags: aide
+
+    - name: Add excludes for noisy paths (optional)
+      blockinfile:
+        path: /etc/aide/aide.conf
+        marker: "# {mark} MANAGED BY ANSIBLE: AIDE EXCLUDES"
+        block: |
+          {% for p in aide_exclude_paths %}
+          !{{ p }}
+          {% endfor %}
+      notify: Maybe reinit AIDE
+
+    - name: Create daily cron for AIDE check (03:00)
+      copy:
+        dest: /etc/cron.d/aide-check
+        mode: '0644'
+        content: |
+          SHELL=/bin/sh
+          PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
+          0 3 * * * root /usr/bin/aide --check
+
+    - name: Install malware scanners and process accounting tools
+      apt:
+        name:
+          - rkhunter
+          - chkrootkit
+          - acct
+        state: present
+        update_cache: yes
+      tags: hardening,lynis_tools,process_accounting
+
+    - name: Enable and start process accounting service
+      systemd:
+        name: acct
+        state: started
+        enabled: yes
+      tags: process_accounting
+
+    - name: Ensure process accounting is active after reboot
+      command: accton on
+      changed_when: false
+      tags: process_accounting
+
+    - name: Create daily malware scan script (rkhunter + chkrootkit)
+      copy:
+        dest: /etc/cron.daily/malware-scan
+        mode: '0755'
+        content: |
+          #!/bin/sh
+          # Daily malware scan: update rkhunter DB, run rkhunter and chkrootkit
+          PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
+          /usr/bin/rkhunter --update || true
+          /usr/bin/rkhunter --versioncheck || true
+          /usr/bin/rkhunter --check --skip-keypress --quiet || true
+          /usr/sbin/chkrootkit || true
+      tags: hardening,lynis_tools
+
+    - name: Ensure Postfix smtpd_banner is set to $myhostname ESMTP
+      lineinfile:
+        path: /etc/postfix/main.cf
+        regexp: '^smtpd_banner\s*='
+        line: 'smtpd_banner = $myhostname ESMTP'
+        create: yes
+        backup: yes
+      notify: Restart postfix
+      tags: postfix
+
+    - name: Flush handlers so they run before reboot
+      meta: flush_handlers
+    
+    - name: Initialize AIDE database
+      block:
+        - name: Check if AIDE database exists
+          stat:
+            path: /var/lib/aide/aide.db
+          register: aide_db
+    
+        - name: Initialize AIDE database if not exists
+          shell: |
+            aideinit
+            cp /var/lib/aide/aide.db.new /var/lib/aide/aide.db
+          when: not aide_db.stat.exists
+          args:
+            creates: /var/lib/aide/aide.db
+      tags: aide
+
+    - name: Reboot the machine to apply all changes
+      shell: "nohup /bin/systemctl reboot >/dev/null 2>&1 &"
+      async: 1
+      poll: 0
+      tags: reboot
+    
+  handlers:
+    - name: Reload sysctl
+      command: sysctl --system
+      
+    - name: Restart systemd-resolved
+      systemd:
+        name: systemd-resolved
+        state: restarted
+        enabled: yes
+
+    - name: Restart fail2ban
+      systemd:
+        name: fail2ban
+        state: restarted
+      listen: Restart fail2ban
+    
+    - name: Restart journald
+      systemd:
+        name: systemd-journald
+        state: restarted
+
+    - name: Restart rsyslog
+      systemd:
+        name: rsyslog
+        state: restarted
+
+    - name: Restart postfix
+      systemd:
+        name: postfix
+        state: restarted
+        enabled: yes
+
+    - name: Restart auditd
+      systemd:
+        name: auditd
+        state: restarted
+
+    - name: Load audit rules
+      command: augenrules --load
+      register: audit_load
+      changed_when: "{{ audit_load.stdout != '/usr/sbin/augenrules: No change' }}"
+      failed_when: false
+    
+    - name: Maybe reinit AIDE
+      command: /usr/sbin/aideinit creates=/var/lib/aide/aide.db.gz
+      when: aide_reinit_now | bool
+      register: aide_init
+      
+    - name: Move AIDE DB
+      command: mv /var/lib/aide/aide.db.new.gz /var/lib/aide/aide.db.gz
+      when: aide_init.changed and aide_reinit_now | bool
+
+    - name: Restart ssh
+      systemd:
+        name: ssh
+        state: restarted
+        enabled: yes

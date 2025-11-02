@@ -307,7 +307,7 @@ wait_for_jump_server_ssh() {
 # Harden jump server using Ansible
 harden_jump_server() {
     log_info "Hardening jump server using Ansible for environment: $DEPLOYMENT_ENV ..."
-    ansible-playbook -e deployment_env=$DEPLOYMENT_ENV -i ../../ansible/inventory/hosts.yaml ../../ansible/playbooks/hardening.yml --vault-password-file ~/.ansible/vault.pass
+    ansible-playbook -e deployment_env=$DEPLOYMENT_ENV -i ../../ansible/inventory/hosts.yaml ../../ansible/playbooks/hardening_jump_server.yml --vault-password-file ~/.ansible/vault.pass
     if [[ $? -ne 0 ]]; then
         log_error "Jump server hardening failed."
         exit 1
