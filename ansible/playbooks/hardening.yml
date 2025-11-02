@@ -54,7 +54,8 @@
 
   roles:
     #- githubixx.harden_linux
-    - ansible-lockdown.ubuntu24_cis
+    - role: ansible-lockdown.ubuntu24_cis
+      tags: role_csi
   
   tasks:
     - name: Install Lynis-recommended packages
@@ -82,6 +83,15 @@
       ufw:
         rule: allow
         port: '6422'
+        proto: tcp
+        direction: out
+        state: enabled
+      tags: firewall
+
+    - name: Allow port 22 OUT in UFW
+      ufw:
+        rule: allow
+        port: '22'
         proto: tcp
         direction: out
         state: enabled
@@ -117,6 +127,14 @@
         mode: '0644'
       notify: Restart fail2ban
       tags: lynis_tools
+
+    - name: Remove any existing X11Forwarding configurations
+      lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^(#\s*)?X11Forwarding\s+.*'
+        state: absent
+      notify: Restart ssh
+      tags: ssh,lynis_tools
 
     - name: Harden SSH configuration (disable forwarding, X11, TCPKeepAlive and change port)
       vars:
@@ -210,6 +228,123 @@
         dest: /etc/resolv.conf
         state: link
         force: true
+
+    - name: Configure kernel hardening parameters
+      sysctl:
+        name: "{{ item.key }}"
+        value: "{{ item.value }}"
+        state: present
+        sysctl_file: /etc/sysctl.d/99-security.conf
+        reload: yes
+      with_items:
+        # Network Security
+        - { key: 'net.ipv4.conf.all.rp_filter', value: '1' }             # Enable source route verification
+        - { key: 'net.ipv4.conf.default.rp_filter', value: '1' }         # Enable source route verification
+        - { key: 'net.ipv4.icmp_echo_ignore_broadcasts', value: '1' }    # Ignore ICMP broadcast requests
+        - { key: 'net.ipv4.icmp_ignore_bogus_error_responses', value: '1' } # Ignore bogus ICMP errors
+        - { key: 'net.ipv4.conf.all.accept_redirects', value: '0' }      # Disable ICMP redirects
+        - { key: 'net.ipv4.conf.default.accept_redirects', value: '0' }  # Disable ICMP redirects
+        - { key: 'net.ipv4.conf.all.secure_redirects', value: '0' }      # Disable secure ICMP redirects
+        - { key: 'net.ipv4.conf.default.secure_redirects', value: '0' }  # Disable secure ICMP redirects
+        - { key: 'net.ipv4.conf.all.send_redirects', value: '0' }        # Don't send ICMP redirects
+        - { key: 'net.ipv4.conf.default.send_redirects', value: '0' }    # Don't send ICMP redirects
+        - { key: 'net.ipv4.conf.all.accept_source_route', value: '0' }   # Disable source routing
+        - { key: 'net.ipv4.conf.default.accept_source_route', value: '0' } # Disable source routing
+        
+        # System Security
+        - { key: 'kernel.sysrq', value: '0' }                            # Disable SysRq key
+        - { key: 'kernel.core_uses_pid', value: '1' }                    # Append PID to core filename
+        - { key: 'kernel.kptr_restrict', value: '2' }                    # Restrict kernel pointer exposure
+        - { key: 'kernel.yama.ptrace_scope', value: '1' }               # Restrict ptrace to child processes
+        - { key: 'kernel.panic_on_oops', value: '1' }                   # Panic on kernel oops
+        - { key: 'kernel.perf_event_paranoid', value: '3' }             # Restrict perf events
+        - { key: 'kernel.randomize_va_space', value: '2' }              # Enable ASLR
+        - { key: 'dev.tty.ldisc_autoload', value: '0' }                # Disable automatic loading of TTY line disciplines
+        - { key: 'fs.protected_fifos', value: '2' }                     # Protect FIFO special files
+        - { key: 'kernel.unprivileged_bpf_disabled', value: '1' }       # Disable unprivileged BPF
+        - { key: 'net.core.bpf_jit_harden', value: '2' }               # Harden BPF JIT compiler
+        
+        # File System Security
+        - { key: 'fs.protected_hardlinks', value: '1' }                 # Protect hardlinks
+        - { key: 'fs.protected_symlinks', value: '1' }                  # Protect symlinks
+        - { key: 'fs.suid_dumpable', value: '0' }                      # Disable core dumps of suid programs
+        
+        # Virtual Memory Security
+        - { key: 'vm.mmap_min_addr', value: '65536' }                  # Prevent NULL page mapping
+        - { key: 'vm.swappiness', value: '10' }                        # Reduce swapping
+        - { key: 'vm.dirty_ratio', value: '20' }                       # Memory dirty ratio
+        
+        # Network Performance & Security
+        - { key: 'net.core.rmem_max', value: '16777216' }             # Increase max TCP receive buffer
+        - { key: 'net.core.wmem_max', value: '16777216' }             # Increase max TCP send buffer
+        - { key: 'net.ipv4.tcp_rmem', value: '4096 87380 16777216' }  # TCP receive buffer
+        - { key: 'net.ipv4.tcp_wmem', value: '4096 87380 16777216' }  # TCP send buffer
+        - { key: 'net.ipv4.tcp_syncookies', value: '1' }              # Enable TCP SYN cookies
+        - { key: 'net.ipv4.tcp_rfc1337', value: '1' }                # Enable protection against TCP time-wait
+        - { key: 'net.ipv4.tcp_timestamps', value: '1' }              # Enable TCP timestamps
+        - { key: 'net.ipv4.tcp_sack', value: '1' }                   # Enable selective ACK
+        - { key: 'net.ipv4.tcp_dsack', value: '1' }                  # Enable duplicate SACK
+        - { key: 'net.ipv6.conf.all.accept_redirects', value: '0' }  # Enable duplicate SACK
+        - { key: 'net.ipv6.conf.default.accept_redirects', value: '0' } # Enable duplicate SACK
+      tags: kernel_hard
+      
+    - name: Ensure sysctl settings are loaded on boot
+      copy:
+        dest: /etc/sysctl.d/99-security.conf
+        mode: '0644'
+        content: |
+          # Kernel hardening parameters
+          # Network security
+          net.ipv4.conf.all.rp_filter = 1
+          net.ipv4.conf.default.rp_filter = 1
+          net.ipv4.icmp_echo_ignore_broadcasts = 1
+          net.ipv4.icmp_ignore_bogus_error_responses = 1
+          net.ipv4.conf.all.accept_redirects = 0
+          net.ipv4.conf.default.accept_redirects = 0
+          net.ipv4.conf.all.secure_redirects = 0
+          net.ipv4.conf.default.secure_redirects = 0
+          net.ipv4.conf.all.send_redirects = 0
+          net.ipv4.conf.default.send_redirects = 0
+          net.ipv4.conf.all.accept_source_route = 0
+          net.ipv4.conf.default.accept_source_route = 0
+          
+          # System security
+          kernel.sysrq = 0
+          kernel.core_uses_pid = 1
+          kernel.kptr_restrict = 2
+          kernel.yama.ptrace_scope = 1
+          kernel.panic_on_oops = 1
+          kernel.perf_event_paranoid = 3
+          kernel.randomize_va_space = 2
+          dev.tty.ldisc_autoload = 0
+          fs.protected_fifos = 2
+          kernel.unprivileged_bpf_disabled = 1
+          net.core.bpf_jit_harden = 2
+          
+          # File system security
+          fs.protected_hardlinks = 1
+          fs.protected_symlinks = 1
+          fs.suid_dumpable = 0
+          
+          # Virtual memory security
+          vm.mmap_min_addr = 65536
+          vm.swappiness = 10
+          vm.dirty_ratio = 20
+          
+          # Network performance & security
+          net.core.rmem_max = 16777216
+          net.core.wmem_max = 16777216
+          net.ipv4.tcp_rmem = 4096 87380 16777216
+          net.ipv4.tcp_wmem = 4096 87380 16777216
+          net.ipv4.tcp_syncookies = 1
+          net.ipv4.tcp_rfc1337 = 1
+          net.ipv4.tcp_timestamps = 0
+          net.ipv4.tcp_sack = 0
+          net.ipv4.tcp_dsack = 0
+          net.ipv6.conf.all.accept_redirects = 0
+          net.ipv6.conf.default.accept_redirects = 0
+      notify: Reload sysctl
+      tags: sysctl,security,kernel
     
     - name: Ensure rsyslog, auditd (and TLS/RELP bits if needed) are present
       apt:
@@ -391,22 +526,61 @@
         name: aide
         state: present
         update_cache: yes
+      tags: aide
 
-    - name: Ensure AIDE config uses strong hashing (replace sha1 -> desired algo)
-      replace:
+    - name: Configure AIDE with strong hash algorithms
+      blockinfile:
         path: /etc/aide/aide.conf
-        regexp: '\bsha1\b'
-        replace: '{{ aide_hash_algo }}'
+        marker: "# {mark} MANAGED BY ANSIBLE: AIDE HASH RULES"
+        block: |
+          # Define strong hash rules
+          ALLHASH = sha512+sha256
+          # Enhanced NORMAL group with both SHA512 and SHA256
+          NORMAL = ALLHASH+ftype+p+n+u+g+s+m+c+acl+selinux+xattrs
+          # Define specific groups for different security needs
+          DATAONLY = ALLHASH
+          CONTENT = ALLHASH+ftype
+          SECURE = CONTENT+p+u+g+s+acl+selinux+xattrs
+          LOGS = ALLHASH+growing+p+u+g
+        create: yes
       notify: Maybe reinit AIDE
+      tags: aide
 
-    # If NORMAL line does NOT already contain sha256/sha512, append +{{ aide_hash_algo }}
-    - name: Ensure NORMAL rule contains a strong hash token
-      lineinfile:
+    - name: Apply AIDE rules to critical paths
+      blockinfile:
         path: /etc/aide/aide.conf
-        regexp: '^(NORMAL\s*=\s*(?:(?!\bsha512\b|\bsha256\b).)*?)$'
-        line: '\1+{{ aide_hash_algo }}'
-        backrefs: yes
+        marker: "# {mark} MANAGED BY ANSIBLE: AIDE PATH RULES"
+        block: |
+          # System binaries
+          /bin$ SECURE
+          /sbin$ SECURE
+          /usr/bin$ SECURE
+          /usr/sbin$ SECURE
+          /usr/local/bin$ SECURE
+          /usr/local/sbin$ SECURE
+          
+          # System configuration
+          /etc$ SECURE
+          /etc/(.+)$ SECURE
+          
+          # Security-sensitive files
+          /etc/passwd$ SECURE
+          /etc/shadow$ SECURE
+          /etc/group$ SECURE
+          /etc/gshadow$ SECURE
+          /etc/login.defs$ SECURE
+          
+          # Kernel and boot files
+          /boot$ SECURE
+          /lib/modules$ SECURE
+          
+          # Log files with special handling
+          /var/log$ LOGS
+          /var/log/(.+)\.log$ LOGS
+          /var/log/aide/aide.log$ LOGS
+        create: yes
       notify: Maybe reinit AIDE
+      tags: aide
 
     - name: Add excludes for noisy paths (optional)
       blockinfile:
@@ -427,14 +601,27 @@
           PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
           0 3 * * * root /usr/bin/aide --check
 
-    - name: Install malware scanners (rkhunter and chkrootkit)
+    - name: Install malware scanners and process accounting tools
       apt:
         name:
           - rkhunter
           - chkrootkit
+          - acct
         state: present
         update_cache: yes
-      tags: hardening,lynis_tools
+      tags: hardening,lynis_tools,process_accounting
+
+    - name: Enable and start process accounting service
+      systemd:
+        name: acct
+        state: started
+        enabled: yes
+      tags: process_accounting
+
+    - name: Ensure process accounting is active after reboot
+      command: accton on
+      changed_when: false
+      tags: process_accounting
 
     - name: Create daily malware scan script (rkhunter + chkrootkit)
       copy:
@@ -459,8 +646,36 @@
         backup: yes
       notify: Restart postfix
       tags: postfix
+
+    - name: Flush handlers so they run before reboot
+      meta: flush_handlers
+    
+    - name: Initialize AIDE database
+      block:
+        - name: Check if AIDE database exists
+          stat:
+            path: /var/lib/aide/aide.db
+          register: aide_db
+    
+        - name: Initialize AIDE database if not exists
+          shell: |
+            aideinit
+            cp /var/lib/aide/aide.db.new /var/lib/aide/aide.db
+          when: not aide_db.stat.exists
+          args:
+            creates: /var/lib/aide/aide.db
+      tags: aide
+
+    - name: Reboot the machine to apply all changes
+      shell: "nohup /bin/systemctl reboot >/dev/null 2>&1 &"
+      async: 1
+      poll: 0
+      tags: reboot
     
   handlers:
+    - name: Reload sysctl
+      command: sysctl --system
+      
     - name: Restart systemd-resolved
       systemd:
         name: systemd-resolved

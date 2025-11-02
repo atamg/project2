@@ -8,6 +8,7 @@
 
 # Allow SSH from anywhere (customize as needed)
 -A INPUT -p tcp --dport 22 -j ACCEPT
+-A INPUT -p tcp --dport 6422 -j ACCEPT
 
 # Allow ICMP (ping)
 -A INPUT -p icmp -j ACCEPT

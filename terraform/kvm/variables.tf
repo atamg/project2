@@ -39,7 +39,48 @@ variable "worker_ips" {
   default = ["192.168.122.104", "192.168.122.105", "192.168.122.106"]
 }
 
+############################
+# Locals
+############################
+
 locals {
   gateway_ip = "192.168.122.1"
+
+  master_var_disk_size_bytes  = var.master_var_disk_size_gb * 1024 * 1024 * 1024
+  master_home_disk_size_bytes = var.master_home_disk_size_gb * 1024 * 1024 * 1024
+
+  worker_var_disk_size_bytes  = var.worker_var_disk_size_gb * 1024 * 1024 * 1024
+  worker_home_disk_size_bytes = var.worker_home_disk_size_gb * 1024 * 1024 * 1024
+
+  jump_var_disk_size_bytes  = var.jump_var_disk_size_gb * 1024 * 1024 * 1024
+  jump_home_disk_size_bytes = var.jump_home_disk_size_gb * 1024 * 1024 * 1024
 }
 
+
+# Per-role data disk sizes (GB)
+variable "master_var_disk_size_gb" {
+  type    = number
+  default = 20
+}
+variable "master_home_disk_size_gb" {
+  type    = number
+  default = 5
+}
+
+variable "worker_var_disk_size_gb" {
+  type    = number
+  default = 20
+}
+variable "worker_home_disk_size_gb" {
+  type    = number
+  default = 5
+}
+
+variable "jump_var_disk_size_gb" {
+  type    = number
+  default = 20
+}
+variable "jump_home_disk_size_gb" {
+  type    = number
+  default = 20
+}
