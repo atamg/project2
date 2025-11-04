@@ -1,0 +1,57 @@
+---
+- name: Reload sysctl
+  command: sysctl --system
+
+- name: Restart systemd-resolved
+  systemd:
+    name: systemd-resolved
+    state: restarted
+    enabled: yes
+
+- name: Restart fail2ban
+  systemd:
+    name: fail2ban
+    state: restarted
+  listen: Restart fail2ban
+
+- name: Restart journald
+  systemd:
+    name: systemd-journald
+    state: restarted
+
+- name: Restart rsyslog
+  systemd:
+    name: rsyslog
+    state: restarted
+
+- name: Restart postfix
+  systemd:
+    name: postfix
+    state: restarted
+    enabled: yes
+
+- name: Restart auditd
+  systemd:
+    name: auditd
+    state: restarted
+
+- name: Load audit rules
+  command: augenrules --load
+  register: audit_load
+  changed_when: "{{ audit_load.stdout != '/usr/sbin/augenrules: No change' }}"
+  failed_when: false
+
+- name: Maybe reinit AIDE
+  command: /usr/sbin/aideinit creates=/var/lib/aide/aide.db.gz
+  when: aide_reinit_now | bool
+  register: aide_init
+
+- name: Move AIDE DB
+  command: mv /var/lib/aide/aide.db.new.gz /var/lib/aide/aide.db.gz
+  when: aide_init.changed and aide_reinit_now | bool
+
+- name: Restart ssh
+  systemd:
+    name: ssh
+    state: restarted
+    enabled: yes

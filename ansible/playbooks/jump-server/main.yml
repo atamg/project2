@@ -1,0 +1,26 @@
+---
+- hosts: jump_server
+  become: true
+  vars:
+    monitoring_dir: /opt/monitoring
+    ssh_config_dir: /home/ata/.ssh
+    cluster_ssh_user: "ata"
+    slack_webhook_url: "https://hooks.slack.com/services"
+
+  roles:
+    - jump_server
+
+
+- hosts: masters:workers
+  become: true
+  vars:
+    # Use the first host from the jump_server group to fetch the generated public key
+    jump_host: "{{ groups['jump_server'][0] }}"
+    cluster_ssh_user: "ata"
+
+  tasks:
+    - name: Add jump server public key to {{cluster_ssh_user}} authorized_keys on masters and workers
+      authorized_key:
+        user: "{{ cluster_ssh_user }}"
+        key: "{{ hostvars[jump_host]['jump_pub_key'].content | b64decode }}"
+        state: present

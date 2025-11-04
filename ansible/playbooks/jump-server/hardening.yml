@@ -1,0 +1,44 @@
+---
+- hosts: jump_server
+  become: true
+  become_method: sudo
+  vars:
+    dns_domain: "ata.tips"
+    dns_servers: ["8.8.8.8", "1.1.1.1"]
+    ssh_config_dir: /home/ata/.ssh
+    # CIS role variables (match ansible-lockdown.ubuntu24_cis defaults)
+    # Enable level 1 controls only
+    ubtu24cis_level_1: true
+    ubtu24cis_level_2: false
+    # Firewall package used by the role
+    ubtu24cis_firewall_package: "ufw"
+
+    # SSH server settings (flat variables expected by the role)
+    ubtu24cis_sshd_log_level: "VERBOSE"
+    ubtu24cis_sshd_max_auth_tries: 3
+    ubtu24cis_sshd_max_sessions: 2
+    ubtu24cis_sshd_client_alive_interval: 300
+    ubtu24cis_sshd_client_alive_count_max: 2
+
+    # pwquality / password complexity (maps to role passwd_* vars)
+    ubtu24cis_passwd_minlen_value: 14
+    ubtu24cis_passwd_dcredit: -1
+    ubtu24cis_passwd_ucredit: -1
+    ubtu24cis_passwd_lcredit: -1
+    ubtu24cis_passwd_ocredit: -1
+
+    # password aging (login.defs) – role expects these names
+    ubtu24cis_pass_max_days: 90
+    ubtu24cis_pass_min_days: 1
+    ubtu24cis_pass_warn_age: 7
+
+    # PAM/hash algorithm
+    ubtu24cis_passwd_hash_algo: "sha512"
+    ubtu24cis_passwd_setpam_hash_algo: true
+
+  roles:
+    #- githubixx.harden_linux
+    - role: ansible-lockdown.ubuntu24_cis
+      tags: role_csi
+    - role: hardening_jump_server
+      tags: hardening

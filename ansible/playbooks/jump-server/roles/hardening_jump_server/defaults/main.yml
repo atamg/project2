@@ -1,0 +1,19 @@
+---
+# Defaults copied from play vars; playbook will still override these
+dns_domain: "ata.tips"
+dns_servers: ["8.8.8.8", "1.1.1.1"]
+ssh_config_dir: /home/ata/.ssh
+remote_syslog_host: "log-collector.ata.tips"
+remote_syslog_port: 514
+syslog_use_tcp: true
+syslog_use_tls: false
+syslog_tls_ca: "/etc/rsyslog.d/ca.pem"
+syslog_permitted_peer: "log-collector.ata.tips"
+journald_system_max_use: "1G"
+journald_runtime_max_use: "200M"
+aide_hash_algo: "sha512"
+aide_reinit_now: false
+aide_exclude_paths:
+  - "/var/lib/kubelet/pods/.*"
+  - "/var/lib/containerd/.*"
+  - "/var/log/.*"

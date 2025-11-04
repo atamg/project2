@@ -1,0 +1,96 @@
+---
+- name: Update apt cache
+  apt:
+    update_cache: yes
+    cache_valid_time: 3600
+
+- name: Install required packages
+  apt:
+    name:
+      - python3-pip
+      - git
+      - curl
+      - wget
+      - tmux
+      - htop
+      - iptables-persistent
+      - ansible
+      - lynis
+    state: present
+
+- name: Install monitoring tools
+  apt:
+    name:
+      - prometheus-node-exporter
+      - collectd
+    state: present
+
+- name: Create monitoring directory
+  file:
+    path: "{{ monitoring_dir }}"
+    state: directory
+    mode: '0755'
+
+- name: Ensure group '{{ cluster_ssh_user }}' exists
+  ansible.builtin.group:
+    name: "{{ cluster_ssh_user }}"
+    state: present
+
+- name: Ensure user '{{ cluster_ssh_user }}' exists
+  ansible.builtin.user:
+    name: "{{ cluster_ssh_user }}"
+    group: "{{ cluster_ssh_user }}"
+    state: present
+    create_home: yes
+    shell: /bin/bash
+
+- name: Ensure '{{ ssh_config_dir }}' exists for user {{ cluster_ssh_user }}
+  file:
+    path: "{{ ssh_config_dir }}"
+    state: directory
+    owner: "{{ cluster_ssh_user }}"
+    group: "{{ cluster_ssh_user }}"
+    mode: '0700'
+
+- name: Configure SSH config for cluster access
+  template:
+    src: ssh_config.j2
+    dest: "{{ ssh_config_dir }}/config"
+    owner: "{{ cluster_ssh_user }}"
+    group: "{{ cluster_ssh_user }}"
+    mode: '0600'
+
+- name: Configure iptables
+  template:
+    src: iptables_rules.j2
+    dest: /etc/iptables/rules.v4
+    mode: '0600'
+  notify: reload iptables
+
+- name: Install cluster monitoring script
+  template:
+    src: monitor_cluster.sh.j2
+    dest: /usr/local/bin/monitor_cluster.sh
+    mode: '0755'
+
+- name: Setup monitoring cron job
+  cron:
+    name: "Monitor cluster health"
+    minute: "*/5"
+    job: "/usr/local/bin/monitor_cluster.sh"
+
+- name: Generate SSH keypair for user '{{ cluster_ssh_user }}' on jump server
+  openssh_keypair:
+    path: "{{ ssh_config_dir }}/id_rsa"
+    type: rsa
+    size: 4096
+    owner: "{{ cluster_ssh_user }}"
+    group: "{{ cluster_ssh_user }}"
+    mode: '0600'
+    force: no
+  register: generated_jump_key
+
+- name: Read jump server public key for user {{ cluster_ssh_user }}
+  slurp:
+    src: "{{ ssh_config_dir }}/id_rsa.pub"
+  register: jump_pub_key
