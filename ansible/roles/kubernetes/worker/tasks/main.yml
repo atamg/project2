@@ -1,5 +1,0 @@
----
-- name: Install Kubernetes worker components
-  shell: |
-    apt-get install -y kubeadm kubelet kubectl
-    kubeadm join --token <TOKEN> <MASTER_IP>:6443
