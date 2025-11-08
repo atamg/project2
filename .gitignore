@@ -44,3 +44,6 @@ terraform.rc
 terraform/kvm/nodes.json
 terraform/kvm/vars.yaml
 ansible/inventory/*
+
+ansible/.ansible_cache/
+ansible/.ansible_cache/*
