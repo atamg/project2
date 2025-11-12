@@ -11,7 +11,7 @@
     - jump_server
 
 
-- hosts: masters:workers
+- hosts: masters:workers:loadbalancers
   become: true
   vars:
     # Use the first host from the jump_server group to fetch the generated public key

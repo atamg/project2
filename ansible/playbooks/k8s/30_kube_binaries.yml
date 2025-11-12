@@ -1,0 +1,6 @@
+- name: Install kubeadm, kubelet, kubectl
+  hosts: masters:workers
+  become: yes
+  gather_facts: yes
+  roles:
+    - kube_binaries

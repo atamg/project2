@@ -1,0 +1,7 @@
+- name: Baseline OS prep
+  hosts: masters:workers
+  become: yes
+  gather_facts: yes
+  roles:
+    - role: common
+    - role: kernel

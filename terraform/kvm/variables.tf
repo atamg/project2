@@ -39,6 +39,11 @@ variable "worker_ips" {
   default = ["192.168.122.104", "192.168.122.105", "192.168.122.106"]
 }
 
+variable "lb_ips" {
+  description = "IP addresses for load-balancer nodes lb-1, lb-2"
+  default     = ["192.168.122.51", "192.168.122.52"]
+}
+
 ############################
 # Locals
 ############################
@@ -54,6 +59,9 @@ locals {
 
   jump_var_disk_size_bytes  = var.jump_var_disk_size_gb * 1024 * 1024 * 1024
   jump_home_disk_size_bytes = var.jump_home_disk_size_gb * 1024 * 1024 * 1024
+
+  lb_var_disk_size_bytes  = var.lb_var_disk_size_gb * 1024 * 1024 * 1024
+  lb_home_disk_size_bytes = var.lb_home_disk_size_gb * 1024 * 1024 * 1024
 }
 
 
@@ -83,4 +91,14 @@ variable "jump_var_disk_size_gb" {
 variable "jump_home_disk_size_gb" {
   type    = number
   default = 20
+}
+
+# LB node disk sizes
+variable "lb_var_disk_size_gb" {
+  type    = number
+  default = 20
+}
+variable "lb_home_disk_size_gb" {
+  type    = number
+  default = 5
 }

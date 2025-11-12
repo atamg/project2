@@ -40,5 +40,5 @@
     #- githubixx.harden_linux
     - role: ansible-lockdown.ubuntu24_cis
       tags: role_csi
-    - role: hardening_jump_server
+    - role: hardening
       tags: hardening

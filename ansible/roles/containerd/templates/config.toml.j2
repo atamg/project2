@@ -1,0 +1,21 @@
+# managed by Ansible
+version = 2
+
+[plugins]
+  [plugins."io.containerd.grpc.v1.cri"]
+    # Align with your Kubernetes minor version; default to 3.10 here
+    sandbox_image = "registry.k8s.io/pause:{{ pause_image_tag | default('3.10') }}"
+
+    [plugins."io.containerd.grpc.v1.cri".containerd]
+      default_runtime_name = "runc"
+
+      [plugins."io.containerd.grpc.v1.cri".containerd.runtimes]
+        [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc]
+          runtime_type = "io.containerd.runc.v2"
+
+          [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc.options]
+            # CRITICAL: must be true to match kubelet's systemd cgroup driver
+            SystemdCgroup = {{ (containerd_systemd_cgroup | default(true)) | ternary("true", "false") }}
+
+[metrics]
+address = "127.0.0.1:1338"

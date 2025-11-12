@@ -1,0 +1,50 @@
+- name: Install HAProxy & Keepalived
+  ansible.builtin.apt:
+    name:
+      - haproxy
+      - keepalived
+    update_cache: yes
+    state: present
+
+- name: Build list of LB peers (other LB nodes)
+  ansible.builtin.set_fact:
+    lb_peers: "{{ groups['loadbalancers'] | reject('equalto', inventory_hostname) | list }}"
+
+- name: Determine VRRP role & priority
+  ansible.builtin.set_fact:
+    vrrp_state: "{{ 'MASTER' if inventory_hostname == (groups['loadbalancers'] | first) else 'BACKUP' }}"
+    vrrp_priority: "{{ 200 if inventory_hostname == (groups['loadbalancers'] | first) else 150 }}"
+
+- name: Template HAProxy config
+  ansible.builtin.template:
+    src: haproxy.cfg.j2
+    dest: /etc/haproxy/haproxy.cfg
+    mode: "0644"
+  notify:
+    - Restart haproxy
+
+- name: Enable HAProxy
+  ansible.builtin.systemd:
+    name: haproxy
+    enabled: true
+
+- name: Template keepalived health check script
+  ansible.builtin.template:
+    src: chk_haproxy.sh.j2
+    dest: /usr/local/bin/chk_haproxy.sh
+    mode: "0755"
+
+- name: Template Keepalived config
+  ansible.builtin.template:
+    src: keepalived.conf.j2
+    dest: /etc/keepalived/keepalived.conf
+    mode: "0644"
+  notify:
+    - Restart keepalived
+
+- name: Enable Keepalived
+  ansible.builtin.systemd:
+    name: keepalived
+    enabled: true
+
+

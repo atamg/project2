@@ -1,0 +1,37 @@
+# managed by Ansible
+vrrp_script chk_haproxy {
+    script "/usr/local/bin/chk_haproxy.sh"
+    interval 2
+    timeout 2
+    fall 2
+    rise 2
+}
+
+vrrp_instance VI_1 {
+    state {{ vrrp_state }}
+    interface {{ api_vip_interface }}
+    virtual_router_id 51
+    priority {{ vrrp_priority }}
+    advert_int 1
+    nopreempt
+    authentication {
+        auth_type PASS
+        auth_pass 7ThQk8gFj9      # change if you want a different shared secret
+    }
+
+    # Unicast mode (reliable in VMs/Clouds)
+    unicast_src_ip {{ hostvars[inventory_hostname].ansible_host | default(ansible_host) }}
+    unicast_peer {
+{% for n in lb_peers %}
+        {{ hostvars[n].ansible_host | default(n) }}
+{% endfor %}
+    }
+
+    virtual_ipaddress {
+        {{ api_vip }}/24
+    }
+
+    track_script {
+        chk_haproxy
+    }
+}

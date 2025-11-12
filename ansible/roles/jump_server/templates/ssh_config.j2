@@ -29,3 +29,18 @@ Host {{ host }} w{{ idx }}
 
 {%   endfor %}
 {% endif %}
+
+{% if groups.get('loadbalancers') %}
+# Loadbalancers nodes
+{%   for host in groups['loadbalancers'] %}
+{%     set idx = loop.index %}
+Host {{ host }} lb{{ idx }}
+    HostName {{ hostvars[host].ansible_host | default(host) }}
+    User {{ cluster_ssh_user | default(hostvars[host].ansible_user | default('root')) }}
+    IdentityFile {{ hostvars[host].ansible_ssh_private_key_file | default('~/.ssh/id_rsa') }}
+    StrictHostKeyChecking no
+    UserKnownHostsFile /dev/null
+    ForwardAgent yes
+
+{%   endfor %}
+{% endif %}

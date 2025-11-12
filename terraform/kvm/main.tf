@@ -113,6 +113,31 @@ resource "libvirt_volume" "jump_server_home_disk" {
   format = "qcow2"
 }
 
+# LB node disks
+resource "libvirt_volume" "lb_disk" {
+  count          = length(var.lb_ips)
+  name           = "lb-${count.index + 1}.qcow2"
+  base_volume_id = libvirt_volume.ubuntu_base.id
+  pool           = "default"
+  size           = 10737418240
+}
+
+resource "libvirt_volume" "lb_var_disk" {
+  count  = length(var.lb_ips)
+  name   = "lb-${count.index + 1}-var.qcow2"
+  pool   = "default"
+  size   = local.lb_var_disk_size_bytes
+  format = "qcow2"
+}
+
+resource "libvirt_volume" "lb_home_disk" {
+  count  = length(var.lb_ips)
+  name   = "lb-${count.index + 1}-home.qcow2"
+  pool   = "default"
+  size   = local.lb_home_disk_size_bytes
+  format = "qcow2"
+}
+
 ############################
 # Data sources (ssh key + cloud-init templates + net cfg)
 ############################
@@ -207,6 +232,36 @@ resource "libvirt_cloudinit_disk" "cloudinit_jump_server" {
   pool           = "default"
 }
 
+# LB cloud-init & network
+data "template_file" "cloud_init_lb" {
+  count    = length(var.lb_ips)
+  template = file("${path.module}/cloud_init_lb.tpl")
+  vars = {
+    hostname = "lb-${count.index + 1}"
+    password = var.password
+    ssh_key  = data.local_file.ssh_key.content
+    ip       = var.lb_ips[count.index]
+    gateway  = local.gateway_ip
+  }
+}
+
+data "template_file" "network_config_lb" {
+  count    = length(var.lb_ips)
+  template = file("${path.module}/network_config.cfg")
+  vars = {
+    ip      = var.lb_ips[count.index]
+    gateway = local.gateway_ip
+  }
+}
+
+resource "libvirt_cloudinit_disk" "cloudinit_lb" {
+  count          = length(var.lb_ips)
+  name           = "cloudinit-lb-${count.index + 1}.iso"
+  user_data      = data.template_file.cloud_init_lb[count.index].rendered
+  network_config = data.template_file.network_config_lb[count.index].rendered
+  pool           = "default"
+}
+
 ############################
 # Domains
 ############################
@@ -296,6 +351,35 @@ resource "libvirt_domain" "jump_server" {
   }
 }
 
+resource "libvirt_domain" "lb_nodes" {
+  count  = length(var.lb_ips)
+  name   = "lb-${count.index + 1}"
+  memory = var.memory
+  vcpu   = var.cpu
+
+  # root disk
+  disk { volume_id = libvirt_volume.lb_disk[count.index].id }
+
+  # data disks
+  disk { volume_id = libvirt_volume.lb_var_disk[count.index].id }
+  disk { volume_id = libvirt_volume.lb_home_disk[count.index].id }
+
+  cloudinit = libvirt_cloudinit_disk.cloudinit_lb[count.index].id
+
+  network_interface { network_name = "default" }
+
+  graphics {
+    type        = "spice"
+    listen_type = "none"
+  }
+
+  console {
+    type        = "pty"
+    target_type = "serial"
+    target_port = "0"
+  }
+}
+
 ############################
 # Outputs
 ############################
@@ -309,4 +393,8 @@ output "worker_nodes_map" {
 
 output "jump_server_map" {
   value = { "jump-server" = var.jump_server_ip }
+}
+
+output "lb_nodes_map" {
+  value = { for idx, ip in var.lb_ips : "lb-${idx + 1}" => ip }
 }

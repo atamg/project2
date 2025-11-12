@@ -1,0 +1,16 @@
+common_packages:
+  - curl
+  - jq
+  - apt-transport-https
+  - ca-certificates
+  - gnupg
+  - lsb-release
+  - software-properties-common
+  - chrony
+  - conntrack
+  - socat
+  - iproute2
+  - iptables
+  - ebtables
+  - ethtool
+  - nfs-common

@@ -1,0 +1,6 @@
+- name: Join remaining control planes
+  hosts: "{{ groups['masters'][1:] }}"
+  become: yes
+  gather_facts: yes
+  roles:
+    - kubeadm_join_cp

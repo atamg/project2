@@ -1,0 +1,4 @@
+---
+# default variables for the role
+kube_user: "{{ ansible_user | default('ata') }}"
+kube_home: "/home/{{ kube_user}}"

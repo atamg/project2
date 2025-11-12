@@ -1,0 +1,98 @@
+# managed by Ansible
+apiVersion: kubeadm.k8s.io/v1beta4
+kind: ClusterConfiguration
+clusterName: {{ cluster_name }}
+kubernetesVersion: "{{ kubernetes_version }}"
+controlPlaneEndpoint: "{{ control_plane_endpoint_dns }}:{{ control_plane_endpoint_port }}"
+networking:
+  podSubnet: {{ pod_cidr }}
+  serviceSubnet: {{ service_cidr }}
+  dnsDomain: {{ cluster_domain }}
+
+apiServer:
+  extraArgs:
+    - name: authorization-mode
+      value: Node,RBAC
+    - name: audit-log-path
+      value: /var/log/kubernetes/audit.log
+    - name: audit-log-maxage
+      value: "5"
+    - name: audit-log-maxbackup
+      value: "5"
+    - name: audit-log-maxsize
+      value: "100"
+  certSANs:
+{% for h in groups['masters'] | default([]) %}
+    - {{ hostvars[h].ansible_host | default(h) }}
+    - {{ h }}
+{% endfor %}
+    - {{ control_plane_endpoint_dns }}
+    - {{ api_vip }}
+
+controllerManager: {}
+scheduler: {}
+imageRepository: registry.k8s.io
+
+{% if etcd_topology == 'external' %}
+etcd:
+  external:
+    endpoints:
+{% for ep in etcd_endpoints %}
+      - {{ ep }}
+{% endfor %}
+    caFile: "{{ etcd_ca_file }}"
+    certFile: "{{ etcd_crt_file }}"
+    keyFile: "{{ etcd_key_file }}"
+{% else %}
+etcd:
+  local:
+    dataDir: /var/lib/etcd
+{% endif %}
+
+---
+apiVersion: kubelet.config.k8s.io/v1beta1
+kind: KubeletConfiguration
+
+# Static pods path for control-plane components
+staticPodPath: /etc/kubernetes/manifests
+
+# Must match containerd (managed by your containerd role)
+cgroupDriver: systemd
+containerRuntimeEndpoint: unix:///var/run/containerd/containerd.sock
+
+# Hardened kubelet auth (fixes warnings and aligns best practices)
+authentication:
+  anonymous:
+    enabled: false
+  webhook:
+    enabled: true
+authorization:
+  mode: Webhook
+
+# Cluster DNS/domain
+clusterDNS:
+  - 10.96.0.10
+clusterDomain: {{ cluster_domain }}
+
+featureGates:
+  RotateKubeletServerCertificate: true
+protectKernelDefaults: true
+
+failSwapOn: true
+tlsMinVersion: VersionTLS12
+
+---
+apiVersion: kubeproxy.config.k8s.io/v1alpha1
+kind: KubeProxyConfiguration
+mode: {{ kube_proxy_mode | default("iptables") }}
+
+---
+apiVersion: kubeadm.k8s.io/v1beta4
+kind: InitConfiguration
+localAPIEndpoint:
+  advertiseAddress: "{{ hostvars[inventory_hostname].ansible_host | default(ansible_host) }}"
+  bindPort: {{ control_plane_endpoint_port }}
+nodeRegistration:
+  kubeletExtraArgs:
+    - name: node-ip
+      value: "{{ hostvars[inventory_hostname].ansible_host | default(ansible_host) }}"

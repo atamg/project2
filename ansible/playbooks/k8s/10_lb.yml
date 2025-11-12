@@ -1,0 +1,6 @@
+- name: Configure HA LBs for Kubernetes API
+  hosts: loadbalancers
+  become: yes
+  gather_facts: yes
+  roles:
+    - lb

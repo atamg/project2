@@ -1,0 +1,4 @@
+- name: Join worker node
+  ansible.builtin.command: "{{ hostvars[groups['masters'][0]].worker_join_cmd }}"
+  args:
+    creates: /var/lib/kubelet/kubeadm-flags.env

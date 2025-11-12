@@ -38,6 +38,14 @@
     state: enabled
   tags: firewall
 
+- name: Ensure ICMP (ping) OUT is allowed in UFW
+  ansible.builtin.lineinfile:
+    path: /etc/ufw/before.rules
+    insertafter: '^# End required lines'
+    line: '-A ufw-before-output -p icmp -j ACCEPT'
+    state: present
+  tags: firewall
+
 # Optional: ensure fail2ban starts on boot
 - name: Enable and start fail2ban
   systemd:

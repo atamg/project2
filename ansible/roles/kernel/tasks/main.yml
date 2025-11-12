@@ -1,0 +1,29 @@
+- name: Load kernel modules at boot
+  ansible.builtin.copy:
+    dest: /etc/modules-load.d/k8s.conf
+    content: |
+      overlay
+      br_netfilter
+  notify: Reload modules
+
+- name: Set required sysctls
+  ansible.builtin.copy:
+    dest: /etc/sysctl.d/99-k8s.conf
+    content: |
+      net.bridge.bridge-nf-call-iptables = 1
+      net.bridge.bridge-nf-call-ip6tables = 1
+      net.ipv4.ip_forward = 1
+      # /etc/sysctl.d/99-kubernetes-init.conf
+      # Required kernel settings for kubelet (from Kubernetes documentation)
+      # Allow memory overcommit
+      vm.overcommit_memory = 1
+
+      # Reboot 10 seconds after a kernel panic
+      kernel.panic = 10
+
+      # Reboot on kernel oops
+      kernel.panic_on_oops = 1
+  notify: Apply sysctl
+
+- name: Handlers
+  ansible.builtin.meta: flush_handlers

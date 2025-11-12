@@ -1,0 +1,4 @@
+- name: Join control plane
+  ansible.builtin.command: "{{ hostvars[groups['masters'][0]].cp_join_cmd }}"
+  args:
+    creates: /etc/kubernetes/admin.conf

@@ -1,0 +1,6 @@
+- name: Install & configure containerd
+  hosts: masters:workers
+  become: yes
+  gather_facts: yes
+  roles:
+    - containerd

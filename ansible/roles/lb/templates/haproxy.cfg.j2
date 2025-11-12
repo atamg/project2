@@ -1,0 +1,28 @@
+# managed by Ansible
+global
+    log /dev/log local0
+    log /dev/log local1 notice
+    daemon
+    maxconn 4096
+    tune.ssl.default-dh-param 2048
+
+defaults
+    log     global
+    mode    tcp
+    option  dontlognull
+    timeout connect 5s
+    timeout client  30s
+    timeout server  30s
+
+# Frontend for Kubernetes API
+frontend k8s_api_fe
+    bind *:{{ control_plane_endpoint_port }}
+    default_backend k8s_api_be
+
+# Backend to masters' kube-apiserver:6443
+backend k8s_api_be
+    option tcp-check
+    balance roundrobin
+{% for m in groups['masters'] %}
+    server {{ m }} {{ hostvars[m].ansible_host | default(m) }}:{{ control_plane_endpoint_port }} check
+{% endfor %}

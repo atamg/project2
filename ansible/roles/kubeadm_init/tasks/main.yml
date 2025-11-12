@@ -1,0 +1,106 @@
+- name: Bootstrap controlPlaneEndpoint to first master in /etc/hosts
+  become: true
+  ansible.builtin.lineinfile:
+    path: /etc/hosts
+    regexp: '^\s*\d+\.\d+\.\d+\.\d+\s+{{ control_plane_endpoint_dns }}\b'
+    line: "{{ hostvars[groups['masters'][0]].ansible_host | default(groups['masters'][0]) }} {{ control_plane_endpoint_dns }}"
+    state: present
+    backup: yes
+    
+- name: "Render kubeadm-config on first control plane"
+  ansible.builtin.template:
+    src: kubeadm-config.yaml.j2
+    dest: "{{ kube_home }}/kubeadm-config.yaml"
+    mode: "0600"
+    owner: "{{ kube_user }}"
+  when: inventory_hostname == (groups['masters'] | first)
+
+# Ensure kubelet picks up correct flags (containerd role already has drop-in)
+- name: "Write kubeadm kubelet flags env"
+  become: true
+  ansible.builtin.template:
+    src: kubeadm-flags.env.j2
+    dest: /var/lib/kubelet/kubeadm-flags.env
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart kubelet
+
+# (Optional) Pre-pull images to speed up init / fail fast if registry blocked
+- name: "Pre-pull control plane images"
+  become: true
+  ansible.builtin.command: "kubeadm config images pull --config {{ kube_home }}/kubeadm-config.yaml"
+  changed_when: false
+  when: inventory_hostname == (groups['masters'] | first)
+
+- name: "kubeadm init (first control plane)"
+  become: true
+  ansible.builtin.command: "kubeadm init --config {{ kube_home }}/kubeadm-config.yaml"
+  args:
+    creates: /etc/kubernetes/admin.conf
+  when: inventory_hostname == (groups['masters'] | first)
+
+- name: "Ensure .kube directory exists for user"
+  become: true
+  ansible.builtin.file:
+    path: "{{ kube_home }}/.kube"
+    state: directory
+    owner: "{{ kube_user }}"
+    mode: "0700"
+  when: inventory_hostname == (groups['masters'] | first)
+
+- name: "Copy kubeconfig to user's kube config"
+  become: true
+  ansible.builtin.copy:
+    src: /etc/kubernetes/admin.conf
+    dest: "{{ kube_home }}/.kube/config"
+    remote_src: true
+    owner: "{{ kube_user }}"
+    mode: "0600"
+  when: inventory_hostname == (groups['masters'] | first)
+
+# 1) Generate a certificate key (prints a 64-char hex)
+- name: Generate certificate key for control-plane cert upload
+  become: true
+  ansible.builtin.command: kubeadm certs certificate-key
+  register: cert_key
+  changed_when: false
+  when: inventory_hostname == (groups['masters'] | first)
+
+# 2) Upload the certs to the cluster using that key
+- name: Upload control-plane certs
+  become: true
+  ansible.builtin.command: >
+    kubeadm init phase upload-certs
+    --certificate-key {{ cert_key.stdout | trim }}
+    --config {{ kube_home }}/kubeadm-config.yaml
+  register: upload_out
+  changed_when: "'Using certificate key' in upload_out.stdout"
+  when: inventory_hostname == (groups['masters'] | first)
+
+# 3) Get the join command (token)
+- name: Get control-plane/worker join command
+  become: true
+  ansible.builtin.command: kubeadm token create --print-join-command
+  register: join_out
+  changed_when: false
+  when: inventory_hostname == (groups['masters'] | first)
+
+# 4) Set facts for join commands
+- name: Set join command facts
+  ansible.builtin.set_fact:
+    cp_join_cmd: "{{ join_out.stdout }} --control-plane --certificate-key {{ cert_key.stdout | trim }}"
+    worker_join_cmd: "{{ join_out.stdout }}"
+  when: inventory_hostname == (groups['masters'] | first)
+
+# (optional) Save to file for debugging
+- name: Save join commands
+  become: true
+  ansible.builtin.copy:
+    dest: "{{ kube_home }}/join-commands.txt"
+    content: |
+      CP: {{ hostvars[groups['masters'][0]].cp_join_cmd }}
+      WK: {{ hostvars[groups['masters'][0]].worker_join_cmd }}
+    mode: "0600"
+    owner: "{{ kube_user }}"
+  when: inventory_hostname == (groups['masters'] | first)

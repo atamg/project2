@@ -1,0 +1,2 @@
+pause_image_tag: "3.10"
+containerd_systemd_cgroup: true

@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Simple check: ensure HAProxy is listening on API port
+PORT="{{ control_plane_endpoint_port }}"
+if ss -lnt | awk '{print $4}' | grep -qE "(:|^)${PORT}$"; then
+  exit 0
+else
+  exit 1
+fi

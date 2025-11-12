@@ -1,0 +1,44 @@
+- name: Ensure timezone
+  ansible.builtin.file:
+    path: /etc/timezone
+    state: touch
+  when: timezone is defined
+
+- name: Set timezone
+  community.general.timezone:
+    name: "{{ timezone | default('UTC') }}"
+
+- name: Install base packages
+  ansible.builtin.apt:
+    name: "{{ common_packages }}"
+    update_cache: yes
+    state: present
+
+- name: Disable swap at runtime
+  ansible.builtin.command: swapoff -a
+  when: not enable_swap
+  changed_when: false
+
+- name: Ensure swap is disabled in fstab
+  ansible.builtin.replace:
+    path: /etc/fstab
+    regexp: '^\s*([^#]\S+)\s+\S+\s+swap\s+\S+\s+\S+\s+\S+'
+    replace: '# \1 swap disabled by Ansible'
+  when: not enable_swap
+
+- name: Configure proxy env for APT (if provided)
+  ansible.builtin.blockinfile:
+    path: /etc/apt/apt.conf.d/95proxy
+    create: yes
+    block: |
+      Acquire::http::Proxy "{{ http_proxy }}";
+      Acquire::https::Proxy "{{ https_proxy }}";
+  when: http_proxy | length > 0 or https_proxy | length > 0
+
+#- name: Ensure control plane endpoint resolves locally
+#  ansible.builtin.lineinfile:
+#    path: /etc/hosts
+#    line: "{{ api_vip }}  {{ control_plane_endpoint_dns }}"
+#    state: present
+#    create: yes
+#  when: control_plane_endpoint_dns is defined and api_vip is defined

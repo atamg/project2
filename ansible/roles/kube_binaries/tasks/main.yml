@@ -1,0 +1,47 @@
+---
+- name: Derive Kubernetes minor (e.g. 29 from 1.29.3)
+  ansible.builtin.set_fact:
+    k8s_minor: "{{ (kubernetes_version | regex_replace('^v','') | split('.'))[1] }}"
+
+- name: Add Kubernetes apt repo (pkgs.k8s.io) dynamically
+  become: true
+  ansible.builtin.shell: |
+    set -euo pipefail
+    install -m 0755 -d /etc/apt/keyrings
+    curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.{{ k8s_minor }}/deb/Release.key \
+      | gpg --dearmor --batch --yes --no-tty \
+      -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+    chmod 0644 /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+    echo "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.{{ k8s_minor }}/deb/ /" \
+      > /etc/apt/sources.list.d/kubernetes.list
+  args:
+    executable: /bin/bash
+
+
+- name: apt update
+  become: true
+  ansible.builtin.apt:
+    update_cache: true
+
+- name: Install kubeadm, kubelet, kubectl pinned
+  ansible.builtin.apt:
+    name:
+      - "kubelet={{ kubernetes_version | regex_replace('^v','') }}-1.1"
+      - "kubeadm={{ kubernetes_version | regex_replace('^v','') }}-1.1"
+      - "kubectl={{ kubernetes_version | regex_replace('^v','') }}-1.1"
+    state: present
+  register: kube_pkgs
+
+- name: Hold kube packages
+  ansible.builtin.dpkg_selections:
+    name: "{{ item }}"
+    selection: hold
+  loop:
+    - kubelet
+    - kubeadm
+    - kubectl
+
+- name: Enable kubelet (will start after init/join)
+  ansible.builtin.systemd:
+    name: kubelet
+    enabled: true

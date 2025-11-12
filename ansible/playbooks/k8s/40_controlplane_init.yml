@@ -1,0 +1,6 @@
+- name: Initialize first control plane
+  hosts: "{{ groups['masters'][0] }}"
+  become: yes
+  gather_facts: yes
+  roles:
+    - kubeadm_init

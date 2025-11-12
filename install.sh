@@ -103,6 +103,10 @@ generate_ansible_hosts_vars() {
 
     # Workers
     jq -r '.worker_nodes_map.value | to_entries[] | "worker_\(.key | split("-")[1])_ip: \(.value)"' nodes.json >> vars.yaml
+
+    # Load Balancers
+    jq -r '.lb_nodes_map.value | to_entries[] | "lb_\(.key | split("-")[1])_ip: \(.value)"' nodes.json >> vars.yaml
+
     log_info "Ansible variables generated in vars.yaml"
 }
 
@@ -134,6 +138,10 @@ generate_ansible_inventory() {
     echo "      hosts:" >> "$inventory_file"
     jq -r '.worker_nodes_map.value | to_entries[] | "        \(.key):\n          ansible_host: \(.value)"' nodes.json >> "$inventory_file"
     
+    # Load Balancers group
+    echo "    loadbalancers:" >> "$inventory_file"
+    echo "      hosts:" >> "$inventory_file"
+    jq -r '.lb_nodes_map.value | to_entries[] | "        \(.key):\n          ansible_host: \(.value)"' nodes.json >> "$inventory_file"
 
     log_info "Ansible inventory generated at $inventory_file"
 }
@@ -301,11 +309,37 @@ destroy_infrastructure() {
 # Configure Kubernetes cluster using Ansible
 configure_kubernetes() {
     log_info "Configuring Kubernetes cluster using Ansible for environment: $DEPLOYMENT_ENV ..."
-    ansible-playbook -e deployment_env=$DEPLOYMENT_ENV -i ansible/inventory/hosts.yml --extra-vars "@vars.yaml" ansible/playbooks/k8s-cluster.yml
+    log_info "Preparing Kubernetes nodes..."
+    ansible-playbook playbooks/k8s/00_prepare.yml -e deployment_env=$DEPLOYMENT_ENV --vault-password-file ~/.ansible/vault.pass
     if [[ $? -ne 0 ]]; then
-        log_error "Kubernetes configuration failed."
+        log_error "Kubernetes configuration failed in prepration step."
         exit 1
     fi
+    log_info "Config loadbalancers..."
+    ansible-playbook playbooks/k8s/10_lb.yml -e deployment_env=$DEPLOYMENT_ENV --vault-password-file ~/.ansible/vault.pass
+    if [[ $? -ne 0 ]]; then
+        log_error "Kubernetes configuration failed in loadbalancer config step."
+        exit 1
+    fi
+    log_info "Config containerd..."
+    ansible-playbook playbooks/k8s/20_containerd.yml -e deployment_env=$DEPLOYMENT_ENV --vault-password-file ~/.ansible/vault.pass
+    if [[ $? -ne 0 ]]; then
+        log_error "Kubernetes configuration failed in containerd config step."
+        exit 1
+    fi
+    log_info "Config kube bineries..."
+    ansible-playbook playbooks/k8s/30_kube_binaries.yml -e deployment_env=$DEPLOYMENT_ENV --vault-password-file ~/.ansible/vault.pass
+    if [[ $? -ne 0 ]]; then
+        log_error "Kubernetes configuration failed in kube bineries config step."
+        exit 1
+    fi
+    log_info "Control-plane init..."
+    ansible-playbook playbooks/k8s/40_controlplane_init.yml -e deployment_env=$DEPLOYMENT_ENV --vault-password-file ~/.ansible/vault.pass
+    if [[ $? -ne 0 ]]; then
+        log_error "Kubernetes configuration failed in Control-plane init step."
+        exit 1
+    fi
+
     log_info "Kubernetes cluster configured successfully."
 }
 
@@ -357,7 +391,7 @@ main() {
     fi
 
     deploy_infrastructure
-    #configure_kubernetes
+    configure_kubernetes
     #deploy_applications
 }
 
